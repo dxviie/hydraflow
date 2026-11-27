@@ -1,3 +1,5 @@
+import type { AudioSettings } from "../graph/audio";
+import type { AudioState } from "../hydra/audio";
 import type { Engine, SourceStatus } from "../hydra/engine";
 
 /** The key nodes find the editor under */
@@ -15,4 +17,8 @@ export interface EditorContext {
   attach: (nodeId: string, file: File) => void;
   /** What a control node is called, in code and on what it is wired into: `lfo`, `lfo2` */
   controlName: (nodeId: string) => string | undefined;
+  /** How the patch reads the sound: how many bands there are to listen to */
+  readonly audio: AudioSettings;
+  /** Where listening stands: asking for the microphone, listening, turned away… */
+  readonly hearing: AudioState;
 }

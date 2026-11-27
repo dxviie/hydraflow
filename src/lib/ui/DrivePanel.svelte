@@ -1,7 +1,10 @@
 <script lang="ts">
-  import { AUDIO_BINS, DRIVE_MODES, defaultDrive, driveCode, WAVES } from "../graph/params";
+  import { getContext } from "svelte";
+
+  import { DRIVE_MODES, defaultDrive, driveCode, WAVES } from "../graph/params";
   import type { Drive, DriveMode, ParamState } from "../graph/types";
   import type { ParamDef } from "../hydra/catalog";
+  import { EDITOR, type EditorContext } from "./context";
   import NumberField from "./NumberField.svelte";
 
   interface Props {
@@ -13,7 +16,10 @@
   let { def, param, onchange }: Props = $props();
 
   const MAX_STEPS = 8;
-  const bins = Array.from({ length: AUDIO_BINS }, (_, bin) => bin);
+
+  // As many bands as the patch cuts the sound into
+  const editor = getContext<EditorContext>(EDITOR);
+  const bins = $derived(Array.from({ length: editor.audio.bins }, (_, bin) => bin));
 
   const drive = $derived(param.drive);
 

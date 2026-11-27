@@ -4,6 +4,7 @@
  */
 import type { Edge, Node } from "@xyflow/svelte";
 
+import { AUDIO_DEFAULTS, type AudioSettings, sameAudio } from "./graph/audio";
 import type { SavedNode, SavedPatch } from "./graph/storage";
 import {
   type InputName,
@@ -12,6 +13,7 @@ import {
   type ParamState,
   type Patch,
   type PatchEdge,
+  type Shown,
 } from "./graph/types";
 import { getDef, type NodeDef } from "./hydra/catalog";
 
@@ -85,7 +87,12 @@ export function fromSaved(saved: SavedPatch): { nodes: FlowNode[]; edges: FlowEd
   return { nodes, edges: saved.edges.map(toFlowEdge) };
 }
 
-export function toSaved(nodes: FlowNode[], edges: FlowEdge[], shown: number): SavedPatch {
+export function toSaved(
+  nodes: FlowNode[],
+  edges: FlowEdge[],
+  shown: Shown,
+  audio: AudioSettings = AUDIO_DEFAULTS,
+): SavedPatch {
   const saved = nodes.map(({ id, position, data }): SavedNode => {
     const node: SavedNode = {
       id,
@@ -101,7 +108,10 @@ export function toSaved(nodes: FlowNode[], edges: FlowEdge[], shown: number): Sa
     if (data.more) node.more = true;
     return node;
   });
-  return { v: 1, nodes: saved, edges: edges.map(toPatchEdge), shown };
+  const patch: SavedPatch = { v: 1, nodes: saved, edges: edges.map(toPatchEdge), shown };
+  // hydra's own settings go without saying, so a patch that never touched them saves as before
+  if (!sameAudio(audio, AUDIO_DEFAULTS)) patch.audio = audio;
+  return patch;
 }
 
 export function defOf(node: FlowNode): NodeDef | undefined {

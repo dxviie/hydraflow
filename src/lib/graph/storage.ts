@@ -4,8 +4,9 @@
  * can come from an older version or from someone else.
  */
 import { getDef, type NodeDef } from "../hydra/catalog";
+import { AUDIO_DEFAULTS, type AudioSettings, MAX_AUDIO_BINS, sameAudio, tidyAudio } from "./audio";
 import { connect, wouldCycle } from "./edit";
-import { AUDIO_BINS, WAVES } from "./params";
+import { WAVES } from "./params";
 import {
   type Drive,
   type InputName,
@@ -14,6 +15,7 @@ import {
   type ParamState,
   type PatchEdge,
   type PatchNode,
+  type Shown,
 } from "./types";
 
 export interface SavedNode extends PatchNode {
@@ -31,8 +33,10 @@ export interface SavedPatch {
   v: 1;
   nodes: SavedNode[];
   edges: PatchEdge[];
-  /** The output that plays behind the editor */
-  shown: number;
+  /** The output that plays behind the editor, or all four */
+  shown: Shown;
+  /** How the sound is read, when that isn't hydra's own way */
+  audio?: AudioSettings;
 }
 
 const MAX_NODES = 500;
@@ -62,7 +66,7 @@ function parseDrive(raw: unknown): Drive | undefined {
     }
     case "audio": {
       const { bin } = raw;
-      if (!isNumber(bin) || !Number.isInteger(bin) || bin < 0 || bin >= AUDIO_BINS) {
+      if (!isNumber(bin) || !Number.isInteger(bin) || bin < 0 || bin >= MAX_AUDIO_BINS) {
         return undefined;
       }
       if (!isNumber(min) || !isNumber(max)) return undefined;
@@ -126,6 +130,35 @@ function parseNode(raw: unknown): SavedNode | undefined {
   return node;
 }
 
+/** Only what differs from hydra's own is kept: most patches say nothing about the sound */
+function parseAudio(raw: unknown): AudioSettings | undefined {
+  if (!isRecord(raw)) return undefined;
+  const audio = tidyAudio(raw);
+  return sameAudio(audio, AUDIO_DEFAULTS) ? undefined : audio;
+}
+
+/**
+ * A node that listens to a band the sound isn't cut into listens to the last
+ * one there is: the one rule for it, used by the parser and by the editor
+ * when the bands get fewer. Gives the node back as it was when it fits.
+ */
+export function withinBands<T extends Pick<PatchNode, "fn" | "params" | "option">>(
+  node: T,
+  bins: number,
+): T {
+  const last = bins - 1;
+  let fitted = node;
+  if (getDef(node.fn)?.control === "audio" && (node.option ?? 0) > last) {
+    fitted = { ...fitted, option: last };
+  }
+  for (const [name, state] of Object.entries(node.params)) {
+    if (state.drive?.mode !== "audio" || state.drive.bin <= last) continue;
+    const params = { ...fitted.params, [name]: { ...state, drive: { ...state.drive, bin: last } } };
+    fitted = { ...fitted, params };
+  }
+  return fitted;
+}
+
 function parseEdges(raw: unknown, nodes: SavedNode[]): PatchEdge[] {
   if (!Array.isArray(raw)) return [];
   const defs = new Map(nodes.map((node) => [node.id, getDef(node.fn)]));
@@ -163,16 +196,21 @@ export function fits(from: NodeDef, to: NodeDef, input: string): input is InputN
 /** A saved patch from parsed JSON, or nothing if it isn't one */
 export function parsePatch(raw: unknown): SavedPatch | undefined {
   if (!isRecord(raw) || raw.v !== 1 || !Array.isArray(raw.nodes)) return undefined;
+  const audio = parseAudio(raw.audio);
+  const { bins } = audio ?? AUDIO_DEFAULTS;
   const nodes: SavedNode[] = [];
   const ids = new Set<string>();
   for (const item of raw.nodes.slice(0, MAX_NODES)) {
     const node = parseNode(item);
     if (!node || ids.has(node.id)) continue;
     ids.add(node.id);
-    nodes.push(node);
+    nodes.push(withinBands(node, bins));
   }
-  const shown = isNumber(raw.shown) && [0, 1, 2, 3].includes(raw.shown) ? raw.shown : 0;
-  return { v: 1, nodes, edges: parseEdges(raw.edges, nodes), shown };
+  const one = isNumber(raw.shown) && [0, 1, 2, 3].includes(raw.shown) ? raw.shown : 0;
+  const shown = raw.shown === "all" ? "all" : one;
+  const patch: SavedPatch = { v: 1, nodes, edges: parseEdges(raw.edges, nodes), shown };
+  if (audio) patch.audio = audio;
+  return patch;
 }
 
 const value = (number: number): ParamState => ({ value: number });

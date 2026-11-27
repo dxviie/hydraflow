@@ -16,7 +16,6 @@ export interface Env {
 
 export const WAVES: Wave[] = ["sine", "saw", "square", "tri"];
 export const DRIVE_MODES: DriveMode[] = ["seq", "lfo", "audio", "mouse"];
-export const AUDIO_BINS = 4;
 
 const TAU = Math.PI * 2;
 

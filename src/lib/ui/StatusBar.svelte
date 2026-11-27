@@ -1,9 +1,11 @@
 <script lang="ts">
+  import type { Shown } from "../graph/types";
+
   interface Props {
     paused: boolean;
     nodes: number;
-    /** The output playing behind the editor */
-    shown: number;
+    /** The output playing behind the editor, or all four */
+    shown: Shown;
     /** The outputs something is wired to */
     wired: number[];
     fps: number;
@@ -13,7 +15,7 @@
     width: number;
     height: number;
     onpause: () => void;
-    onshow: (buffer: number) => void;
+    onshow: (shown: Shown) => void;
   }
 
   let {
@@ -51,6 +53,12 @@
         onclick={() => onshow(buffer)}>o{buffer}</button
       >
     {/each}
+    <button
+      aria-pressed={shown === "all"}
+      class:wired={wired.length > 0}
+      title="the four outputs at once, a quarter each: hydra's render()"
+      onclick={() => onshow("all")}>all</button
+    >
   </div>
   {#if notice}
     <div class="notice" role="status">

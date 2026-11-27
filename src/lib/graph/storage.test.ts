@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { parsePatch, starterPatch } from "./storage";
+import { AUDIO_DEFAULTS } from "./audio";
+import { parsePatch, starterPatch, withinBands } from "./storage";
 
 const reparse = (patch: unknown) => parsePatch(JSON.parse(JSON.stringify(patch)));
 
@@ -123,6 +124,47 @@ describe("parsePatch", () => {
     });
   });
 
+  test("keeps which output plays, or that all four do", () => {
+    expect(reparse({ v: 1, nodes: [], shown: "all" })?.shown).toBe("all");
+    expect(reparse({ v: 1, nodes: [], shown: 3 })?.shown).toBe(3);
+    for (const shown of [7, "some", null, 1.5]) {
+      expect(reparse({ v: 1, nodes: [], shown })?.shown).toBe(0);
+    }
+  });
+
+  test("keeps how the sound is read, held to what it can be read with", () => {
+    const audio = { bins: 6, cutoff: 1, smooth: 0.8, scale: 4 };
+    expect(reparse({ v: 1, nodes: [], audio })?.audio).toEqual(audio);
+    expect(
+      reparse({ v: 1, nodes: [], audio: { bins: 99, smooth: "fast", extra: 1 } })?.audio,
+    ).toEqual({ ...AUDIO_DEFAULTS, bins: 8 });
+  });
+
+  test("says nothing about the sound when it is read hydra's own way", () => {
+    for (const audio of [undefined, AUDIO_DEFAULTS, "loud", { bins: "many" }]) {
+      const patch = reparse({ v: 1, nodes: [], audio });
+      expect(patch && "audio" in patch).toBe(false);
+    }
+  });
+
+  test("moves what listens to a band the sound isn't cut into onto the last band there is", () => {
+    const drive = (bin: number) => ({ mode: "audio" as const, bin, min: 0, max: 1 });
+    const nodes = [
+      { id: "m", fn: "audio", option: 5 },
+      { id: "a", fn: "osc", params: { sync: { value: 0.1, drive: drive(7) } } },
+      { id: "b", fn: "osc", params: { sync: { value: 0.1, drive: drive(8) } } },
+    ];
+    const six = reparse({ v: 1, nodes, audio: { bins: 6 } });
+    expect(six?.nodes[0].option).toBe(5);
+    expect(six?.nodes[1].params.sync.drive).toEqual(drive(5));
+    // A band no patch can have was never a drive
+    expect(six?.nodes[2].params.sync).toEqual({ value: 0.1 });
+    // Without a word about the sound there are hydra's four
+    const four = reparse({ v: 1, nodes });
+    expect(four?.nodes[0].option).toBe(3);
+    expect(four?.nodes[1].params.sync.drive).toEqual(drive(3));
+  });
+
   test("drops wires that close a loop, go nowhere, or come out of an out", () => {
     const patch = reparse({
       v: 1,
@@ -140,5 +182,35 @@ describe("parsePatch", () => {
       ],
     });
     expect(patch?.edges).toEqual([{ source: "a", target: "b", input: "in" }]);
+  });
+});
+
+describe("withinBands", () => {
+  const listening = {
+    fn: "osc",
+    params: {
+      frequency: { value: 60 },
+      sync: { value: 0.1, drive: { mode: "audio" as const, bin: 5, min: 0, max: 1 } },
+    },
+  };
+
+  test("leaves a node that fits exactly as it was", () => {
+    expect(withinBands(listening, 6)).toBe(listening);
+    const band = { fn: "audio", params: {}, option: 3 };
+    expect(withinBands(band, 4)).toBe(band);
+    // Only an audio node's option is a band
+    const wave = { fn: "lfo", params: {}, option: 3 };
+    expect(withinBands(wave, 2)).toBe(wave);
+  });
+
+  test("moves a drive and an audio node onto the last band, and keeps the rest", () => {
+    const fitted = withinBands(listening, 4);
+    expect(fitted.params.sync).toEqual({
+      value: 0.1,
+      drive: { mode: "audio", bin: 3, min: 0, max: 1 },
+    });
+    expect(fitted.params.frequency).toBe(listening.params.frequency);
+    expect(listening.params.sync.drive.bin).toBe(5);
+    expect(withinBands({ fn: "audio", params: {}, option: 3 }, 2).option).toBe(1);
   });
 });
