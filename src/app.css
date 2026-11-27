@@ -131,6 +131,24 @@ button {
   inset: -7px;
 }
 
+/* A number travels on a dashed violet wire, between round sockets */
+.svelte-flow__handle.value {
+  border-radius: 50%;
+  background: var(--num);
+  border-color: var(--num);
+}
+
+.svelte-flow__edge.value .svelte-flow__edge-path {
+  stroke: var(--num);
+  stroke-width: 1.25;
+  stroke-dasharray: 3 4;
+}
+
+.svelte-flow__edge.value.selected .svelte-flow__edge-path {
+  stroke-width: 2.5;
+  stroke-dasharray: none;
+}
+
 .svelte-flow__handle.connectingto,
 .svelte-flow__handle.valid {
   background: var(--run);

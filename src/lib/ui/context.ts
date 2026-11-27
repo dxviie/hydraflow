@@ -13,4 +13,6 @@ export interface EditorContext {
   crowded: (nodeId: string) => boolean;
   /** Give a picture or video node its file */
   attach: (nodeId: string, file: File) => void;
+  /** What a control node is called, in code and on what it is wired into: `lfo`, `lfo2` */
+  controlName: (nodeId: string) => string | undefined;
 }

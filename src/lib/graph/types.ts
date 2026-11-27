@@ -39,8 +39,22 @@ export interface PatchNode {
   media?: MediaRef;
 }
 
-/** The texture inputs of a node: the chain it continues, and what it mixes in */
-export type InputName = "in" | "by";
+/** A node that makes a number instead of a picture, to wire into parameters */
+export type ControlKind = "lfo" | "audio";
+
+/**
+ * Where a wire goes into a node: the chain it continues (`in`), the texture
+ * it mixes in (`by`), or one of its parameters (`p:frequency`), which takes a
+ * number from a control node.
+ */
+export type InputName = "in" | "by" | `p:${string}`;
+
+export const paramInput = (name: string): InputName => `p:${name}`;
+
+/** The parameter an input stands for, or nothing for a texture input */
+export function inputParam(input: string): string | undefined {
+  return input.startsWith("p:") ? input.slice(2) : undefined;
+}
 
 export interface PatchEdge {
   source: string;

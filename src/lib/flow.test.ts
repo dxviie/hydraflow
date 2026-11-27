@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { fromSaved, newNode, toPatch, toSaved } from "./flow";
+import { fromSaved, newNode, toFlowEdge, toPatch, toPatchEdge, toSaved } from "./flow";
 import { parsePatch, starterPatch } from "./graph/storage";
 import { getDef, type NodeDef } from "./hydra/catalog";
 
@@ -42,6 +42,14 @@ describe("a patch in Svelte Flow", () => {
       option: undefined,
     });
     expect(patch.edges).toContainEqual({ source: "noise", target: "modulate", input: "by" });
+  });
+
+  test("a wire into a parameter keeps its parameter, and is marked as carrying a number", () => {
+    const wire = toFlowEdge({ source: "lfo", target: "kaleid", input: "p:nSides" });
+    expect(wire).toMatchObject({ targetHandle: "p:nSides", class: "value" });
+    expect(toPatchEdge(wire)).toEqual({ source: "lfo", target: "kaleid", input: "p:nSides" });
+    expect(toFlowEdge({ source: "osc", target: "kaleid", input: "in" }).class).toBeUndefined();
+    expect(toPatchEdge({ source: "a", target: "b", targetHandle: "sideways" }).input).toBe("in");
   });
 
   test("a new node starts from hydra's defaults", () => {

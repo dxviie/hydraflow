@@ -180,6 +180,109 @@ describe("inputs", () => {
   });
 });
 
+describe("controls", () => {
+  const patch: Patch = {
+    nodes: [
+      node("swing", "lfo", { rate: 0.2, min: 4, max: 8 }, 0),
+      node("mic", "audio", { min: 0, max: 0.5 }, 2),
+      node("spare", "lfo"),
+      node("osc", "osc", { frequency: 40 }),
+      node("k", "kaleid"),
+      node("o", "out"),
+    ],
+    edges: [
+      { source: "osc", target: "k", input: "in" },
+      { source: "k", target: "o", input: "in" },
+      { source: "swing", target: "k", input: "p:nSides" },
+      { source: "mic", target: "osc", input: "p:sync" },
+      { source: "swing", target: "osc", input: "p:offset" },
+    ],
+  };
+
+  test("are functions with a name in the code, written once however much they feed", () => {
+    expect(toCode(compile(patch))).toBe(
+      [
+        "var lfo = () => 6 + 2 * Math.sin(time * 0.2 * 6.283)",
+        "var audio = () => 0.5 * a.fft[2]",
+        "",
+        "osc(40, audio, lfo)",
+        "  .kaleid(lfo)",
+        "  .out(o0)",
+      ].join("\n"),
+    );
+  });
+
+  test("are named in patch order, and know whether anything listens", () => {
+    expect(compile(patch).controls.map(({ name, used }) => `${name}:${used}`)).toEqual([
+      "lfo:true",
+      "audio:true",
+      "lfo2:false",
+    ]);
+  });
+
+  test("reach hydra with the parameter they are wired into", () => {
+    const seen: string[] = [];
+    const chain: Record<string, unknown> = new Proxy({}, { get: () => () => chain });
+    const compiled = compile(patch);
+    buildChain(compiled.exprOf("o"), {
+      synth: chain,
+      arg: (n, name, _fallback, control) => {
+        if (control) seen.push(`${n.id}.${name} < ${control.name}`);
+        return 0;
+      },
+    });
+    expect(seen.sort()).toEqual(["k.nSides < lfo", "osc.offset < lfo", "osc.sync < audio"]);
+    expect(compiled.controlOf("k", "nSides")?.nodeId).toBe("swing");
+    expect(compiled.controlOf("osc", "frequency")).toBeUndefined();
+  });
+
+  test("make a number, not a picture: wired into a texture input they draw nothing", () => {
+    const wrong: Patch = {
+      nodes: patch.nodes,
+      edges: [
+        { source: "swing", target: "k", input: "in" },
+        { source: "k", target: "o", input: "in" },
+      ],
+    };
+    expect(toCode(compile(wrong))).toBe("solid(0, 0, 0, 0)\n  .kaleid()\n  .out(o0)");
+  });
+
+  test("only count from a control, into a parameter the node has", () => {
+    const wrong: Patch = {
+      nodes: patch.nodes,
+      edges: [
+        { source: "osc", target: "k", input: "p:nSides" },
+        { source: "swing", target: "k", input: "p:notThere" },
+        { source: "swing", target: "spare", input: "p:rate" },
+        { source: "k", target: "o", input: "in" },
+      ],
+    };
+    const compiled = compile(wrong);
+    expect(compiled.controls.some((control) => control.used)).toBe(false);
+    expect(toCode(compiled)).toBe("solid(0, 0, 0, 0)\n  .kaleid()\n  .out(o0)");
+  });
+
+  test("a new wire or another wave is a change hydra has to hear about, a new rate is not", () => {
+    const before = signature(patch);
+    const rewired = { ...patch, edges: patch.edges.slice(0, -1) };
+    expect(signature(rewired)).not.toBe(before);
+    const saw = structuredClone(patch);
+    saw.nodes[0].option = 1;
+    expect(signature(saw)).not.toBe(before);
+    const faster = structuredClone(patch);
+    faster.nodes[0].params.rate = { value: 2 };
+    expect(signature(faster)).toBe(before);
+  });
+
+  test("fold into the function they are", () => {
+    const def = getDef("lfo") as NonNullable<ReturnType<typeof getDef>>;
+    expect(nodeCode(patch.nodes[0], def)).toBe("() => 6 + 2 * Math.sin(time * 0.2 * 6.283)");
+    const kaleid = getDef("kaleid") as NonNullable<ReturnType<typeof getDef>>;
+    const wires = { nSides: compile(patch).controls[0] };
+    expect(nodeCode(patch.nodes[4], kaleid, wires)).toBe("kaleid(lfo)");
+  });
+});
+
 describe("compile", () => {
   test("a loop draws nothing instead of recursing forever", () => {
     const patch: Patch = {

@@ -88,6 +88,41 @@ describe("parsePatch", () => {
     ]);
   });
 
+  test("keeps a control's wire into a parameter, and nothing that only looks like one", () => {
+    const patch = reparse({
+      v: 1,
+      nodes: [
+        {
+          id: "l",
+          fn: "lfo",
+          option: 2,
+          params: { rate: { value: 1, drive: { mode: "mouse", axis: "x", min: 0, max: 1 } } },
+        },
+        { id: "m", fn: "audio" },
+        { id: "a", fn: "osc" },
+        { id: "k", fn: "kaleid" },
+      ],
+      edges: [
+        { source: "l", target: "k", input: "p:nSides" },
+        { source: "m", target: "a", input: "p:sync" },
+        { source: "a", target: "k", input: "p:nSides" },
+        { source: "l", target: "k", input: "p:notThere" },
+        { source: "l", target: "m", input: "p:min" },
+        { source: "l", target: "k", input: "in" },
+        { source: "m", target: "a", input: "p:sync " },
+      ],
+    });
+    expect(patch?.edges).toEqual([
+      { source: "l", target: "k", input: "p:nSides" },
+      { source: "m", target: "a", input: "p:sync" },
+    ]);
+    // A control's own settings stay plain numbers
+    expect(patch?.nodes[0]).toMatchObject({
+      option: 2,
+      params: { rate: { value: 1 }, min: { value: 0 }, max: { value: 1 } },
+    });
+  });
+
   test("drops wires that close a loop, go nowhere, or come out of an out", () => {
     const patch = reparse({
       v: 1,

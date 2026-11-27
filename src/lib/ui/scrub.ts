@@ -32,7 +32,8 @@ export const scrub: Action<HTMLElement, ScrubOptions> = (node, initial) => {
 
   const onPointerDown = (event: PointerEvent) => {
     if (options.disabled || event.button !== 0) return;
-    if ((event.target as HTMLElement).closest("button, input")) return;
+    // A press on a button, a field or a socket is for that, not for the number
+    if ((event.target as HTMLElement).closest("button, input, .svelte-flow__handle")) return;
     pointer = event.pointerId;
     startX = event.clientX;
     startValue = options.value;

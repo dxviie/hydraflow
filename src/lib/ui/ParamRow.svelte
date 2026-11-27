@@ -1,8 +1,9 @@
 <script lang="ts">
+  import { Handle, Position } from "@xyflow/svelte";
   import { untrack } from "svelte";
 
   import { driveLabel, formatNumber } from "../graph/params";
-  import type { ParamState } from "../graph/types";
+  import { type ParamState, paramInput } from "../graph/types";
   import type { ParamDef } from "../hydra/catalog";
   import DrivePanel from "./DrivePanel.svelte";
   import { scrub, snap } from "./scrub";
@@ -12,10 +13,14 @@
     param: ParamState;
     /** The node is selected: the row offers what drives it */
     active: boolean;
+    /** The control wired into this parameter, by name: its number wins while it is plugged in */
+    wired?: string;
+    /** A setting of a control node: a plain number, with no socket and nothing to drive it */
+    plain?: boolean;
     onchange: (param: ParamState) => void;
   }
 
-  let { def, param, active, onchange }: Props = $props();
+  let { def, param, active, wired, plain = false, onchange }: Props = $props();
 
   let open = $state(false);
   let editing = $state(false);
@@ -42,7 +47,7 @@
   const setValue = (value: number) => onchange({ ...param, value });
 
   function edit() {
-    if (drive) return;
+    if (drive || wired) return;
     draft = formatNumber(param.value);
     editing = true;
   }
@@ -61,7 +66,7 @@
   }
 
   function onRowKey(event: KeyboardEvent) {
-    if (drive || editing) return;
+    if (drive || wired || editing) return;
     const direction = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
     if (direction !== 0) {
       event.preventDefault();
@@ -78,14 +83,15 @@
 
 <div
   class="row nodrag nopan"
-  class:driven={drive}
+  class:driven={drive || wired}
+  class:wired
   role="slider"
   tabindex="0"
   aria-label={def.name}
   aria-valuemin={def.min}
   aria-valuemax={def.max}
   aria-valuenow={param.value}
-  title={drive ? undefined : "drag to change, double-click to type"}
+  title={drive || wired ? undefined : "drag to change, double-click to type"}
   ondblclick={edit}
   onkeydown={onRowKey}
   use:scrub={{
@@ -93,11 +99,11 @@
     min: def.min,
     max: def.max,
     step: def.step,
-    disabled: drive !== undefined || editing,
+    disabled: drive !== undefined || wired !== undefined || editing,
     onchange: setValue,
   }}
 >
-  {#if !drive}
+  {#if !drive && !wired}
     <span class="fill" style:left="{fill.left}%" style:width="{fill.width}%"></span>
   {/if}
   <span class="name">{def.name}</span>
@@ -110,12 +116,14 @@
       onkeydown={onInputKey}
       use:focus
     />
+  {:else if wired}
+    <span class="value">~ {wired}</span>
   {:else if drive}
     <span class="value">~ {driveLabel(drive)}</span>
   {:else}
     <span class="value">{formatNumber(param.value)}</span>
   {/if}
-  {#if active || drive}
+  {#if !plain && !wired && (active || drive)}
     <button
       class="drive"
       class:on={drive}
@@ -125,8 +133,11 @@
       onclick={() => (open = !open)}>~</button
     >
   {/if}
+  {#if !plain}
+    <Handle type="target" position={Position.Left} id={paramInput(def.name)} class="value" />
+  {/if}
 </div>
-{#if open}
+{#if open && !wired}
   <DrivePanel {def} {param} {onchange} />
 {/if}
 
@@ -144,6 +155,18 @@
 
   .row.driven {
     cursor: default;
+  }
+
+  /* A parameter's socket shows when it matters: wired, pointed at, selected, or a number on its way */
+  .row :global(.svelte-flow__handle.value) {
+    opacity: 0;
+  }
+
+  .row.wired :global(.svelte-flow__handle.value),
+  .row:hover :global(.svelte-flow__handle.value),
+  :global(.node.selected) .row :global(.svelte-flow__handle.value),
+  :global(.node.offering) .row :global(.svelte-flow__handle.value) {
+    opacity: 1;
   }
 
   .fill {

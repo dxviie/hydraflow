@@ -3,7 +3,15 @@ import { describe, expect, test } from "bun:test";
 // hydra's own sequencing, to keep ours equal to it
 // @ts-expect-error hydra-synth ships no types
 import arrayUtils from "../../../node_modules/hydra-synth/src/lib/array-utils.js";
-import { defaultDrive, driveCode, type Env, evalDrive, evalParam, formatNumber } from "./params";
+import {
+  controlDrive,
+  defaultDrive,
+  driveCode,
+  type Env,
+  evalDrive,
+  evalParam,
+  formatNumber,
+} from "./params";
 import type { Drive } from "./types";
 
 const env = (time: number, overrides: Partial<Env> = {}): Env => ({
@@ -70,6 +78,38 @@ describe("driveCode", () => {
     expect(driveCode({ mode: "lfo", wave: "sine", rate: 0.2, min: 4, max: 8 })).toBe(
       "() => 6 + 2 * Math.sin(time * 0.2 * 6.283)",
     );
+  });
+});
+
+describe("controlDrive", () => {
+  const settings = (values: Record<string, number>) =>
+    Object.fromEntries(Object.entries(values).map(([name, value]) => [name, { value }]));
+
+  test("an lfo node is an lfo drive made of its settings", () => {
+    const node = { id: "l", fn: "lfo", option: 3, params: settings({ rate: 2, min: -1, max: 1 }) };
+    expect(controlDrive("lfo", node)).toEqual({
+      mode: "lfo",
+      wave: "tri",
+      rate: 2,
+      min: -1,
+      max: 1,
+    });
+  });
+
+  test("an audio node listens to the band it is set to", () => {
+    const node = { id: "m", fn: "audio", option: 1, params: settings({ min: 0.2, max: 0.9 }) };
+    expect(controlDrive("audio", node)).toEqual({ mode: "audio", bin: 1, min: 0.2, max: 0.9 });
+    expect(driveCode(controlDrive("audio", node))).toBe("() => 0.2 + 0.7 * a.fft[1]");
+  });
+
+  test("a node with nothing set yet still gives a number", () => {
+    expect(controlDrive("lfo", { id: "l", fn: "lfo", params: {} })).toEqual({
+      mode: "lfo",
+      wave: "sine",
+      rate: 0.2,
+      min: 0,
+      max: 1,
+    });
   });
 });
 

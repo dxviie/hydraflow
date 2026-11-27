@@ -6,7 +6,15 @@
 import { getDef, type NodeDef } from "../hydra/catalog";
 import { connect, wouldCycle } from "./edit";
 import { AUDIO_BINS, WAVES } from "./params";
-import type { Drive, InputName, MediaRef, ParamState, PatchEdge, PatchNode } from "./types";
+import {
+  type Drive,
+  type InputName,
+  inputParam,
+  type MediaRef,
+  type ParamState,
+  type PatchEdge,
+  type PatchNode,
+} from "./types";
 
 export interface SavedNode extends PatchNode {
   x: number;
@@ -77,7 +85,8 @@ function parseParams(raw: unknown, def: NodeDef): Record<string, ParamState> {
   for (const param of def.params) {
     const state = given[param.name];
     const value = isRecord(state) && isNumber(state.value) ? state.value : param.default;
-    const drive = isRecord(state) ? parseDrive(state.drive) : undefined;
+    // A control's own settings are plain numbers: nothing drives the driver
+    const drive = isRecord(state) && !def.control ? parseDrive(state.drive) : undefined;
     params[param.name] = drive ? { value, drive } : { value };
   }
   return params;
@@ -124,20 +133,31 @@ function parseEdges(raw: unknown, nodes: SavedNode[]): PatchEdge[] {
   for (const item of raw) {
     if (!isRecord(item)) continue;
     const { source, target, input } = item;
-    if (typeof source !== "string" || typeof target !== "string") continue;
-    if (input !== "in" && input !== "by") continue;
+    if (typeof source !== "string" || typeof target !== "string" || typeof input !== "string") {
+      continue;
+    }
     const from = defs.get(source);
     const to = defs.get(target);
-    if (!from?.hasOutput || !to || to.inputs < inputIndex(input)) continue;
+    if (!from || !to || !fits(from, to, input)) continue;
     if (wouldCycle(edges, source, target)) continue;
     edges = connect(edges, { source, target, input });
   }
   return edges;
 }
 
-/** `in` is a node's first texture input, `by` its second */
-function inputIndex(input: InputName): number {
-  return input === "in" ? 1 : 2;
+/**
+ * Can a wire from one node go into this input of another? A control's number
+ * goes into parameters, of nodes that aren't controls themselves; a texture
+ * goes into `in`, a node's first texture input, or `by`, its second.
+ */
+export function fits(from: NodeDef, to: NodeDef, input: string): input is InputName {
+  if (!from.hasOutput) return false;
+  const param = inputParam(input);
+  if (param !== undefined) {
+    return Boolean(from.control) && !to.control && to.params.some((known) => known.name === param);
+  }
+  if (from.control || (input !== "in" && input !== "by")) return false;
+  return to.inputs >= (input === "in" ? 1 : 2);
 }
 
 /** A saved patch from parsed JSON, or nothing if it isn't one */

@@ -6,7 +6,18 @@
  */
 import glslFunctions from "hydra-synth/src/glsl/glsl-functions.js";
 
-export type Category = "source" | "geometry" | "color" | "blend" | "modulate" | "input" | "output";
+import { AUDIO_BINS, WAVES } from "../graph/params";
+import type { ControlKind } from "../graph/types";
+
+export type Category =
+  | "source"
+  | "geometry"
+  | "color"
+  | "blend"
+  | "modulate"
+  | "input"
+  | "control"
+  | "output";
 
 export interface ParamDef {
   name: string;
@@ -30,6 +41,8 @@ export interface NodeDef {
   options?: string[];
   /** It brings something in from outside, on one of hydra's inputs (s0 to s3) */
   source?: SourceKind;
+  /** Its output is a number, not a picture: it wires into parameters */
+  control?: ControlKind;
   doc: string;
 }
 
@@ -42,6 +55,7 @@ export const CATEGORIES: Record<Category, { label: string; tag: string; color: s
   blend: { label: "blend", tag: "mix", color: "#99ffaa" },
   modulate: { label: "modulate", tag: "mod", color: "#99ffee" },
   input: { label: "inputs", tag: "in", color: "#99ccff" },
+  control: { label: "control", tag: "ctl", color: "#ee99ff" },
   output: { label: "output", tag: "out", color: "#aa99ff" },
 };
 
@@ -228,6 +242,12 @@ function fromHydra(fn: HydraFunction): NodeDef {
 
 const BUFFERS = ["o0", "o1", "o2", "o3"];
 
+/** What a control node's number moves between. The rows scrub in the range of what it is wired to. */
+const FROM_TO: ParamDef[] = [
+  { name: "min", default: 0, min: 0, max: 1, step: 0.01 },
+  { name: "max", default: 1, min: 0, max: 1, step: 0.01 },
+];
+
 /** Nodes that aren't one hydra function */
 const SPECIAL: NodeDef[] = [
   {
@@ -280,6 +300,28 @@ const SPECIAL: NodeDef[] = [
     primary: 0,
     source: "video",
     doc: "a video of yours, looping",
+  },
+  {
+    type: "lfo",
+    category: "control",
+    inputs: 0,
+    hasOutput: true,
+    params: [{ name: "rate", default: 0.2, min: 0, max: 4, step: 0.01 }, ...FROM_TO],
+    primary: 3,
+    options: WAVES,
+    control: "lfo",
+    doc: "a number that swings by itself",
+  },
+  {
+    type: "audio",
+    category: "control",
+    inputs: 0,
+    hasOutput: true,
+    params: FROM_TO,
+    primary: 2,
+    options: Array.from({ length: AUDIO_BINS }, (_, bin) => `fft ${bin}`),
+    control: "audio",
+    doc: "how loud one band of the sound is",
   },
   {
     type: "out",

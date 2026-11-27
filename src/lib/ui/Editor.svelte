@@ -21,7 +21,7 @@
     toPatchEdge,
     toSaved,
   } from "../flow";
-  import { compile, signature, toCode } from "../graph/compile";
+  import { compile, controlsOf, signature, toCode } from "../graph/compile";
   import {
     connect,
     downstream,
@@ -31,8 +31,8 @@
     wouldCycle,
   } from "../graph/edit";
   import { History } from "../graph/history";
-  import { parsePatch, type SavedPatch, starterPatch } from "../graph/storage";
-  import type { InputName, MediaRef, PatchEdge } from "../graph/types";
+  import { fits, parsePatch, type SavedPatch, starterPatch } from "../graph/storage";
+  import { type InputName, inputParam, type MediaRef, type PatchEdge } from "../graph/types";
   import { getDef, MAX_SOURCES, type NodeDef } from "../hydra/catalog";
   import { Engine, type SourceStatus } from "../hydra/engine";
   import { loadMedia, mediaKind, pruneMedia, saveMedia } from "../media";
@@ -139,6 +139,11 @@
     ),
   );
 
+  // What each control node is called: `lfo`, `lfo2`, `audio`
+  const controlNames = $derived(
+    new Map(controlsOf(patch.nodes).map((control) => [control.nodeId, control.name])),
+  );
+
   setContext<EditorContext>(EDITOR, {
     get engine() {
       return engine;
@@ -146,6 +151,7 @@
     status: (nodeId) => statuses[nodeId],
     crowded: (nodeId) => crowded.has(nodeId),
     attach,
+    controlName: (nodeId) => controlNames.get(nodeId),
   });
 
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -233,12 +239,46 @@
 
   const patchEdges = () => edges.map(toPatchEdge);
 
-  const isValidConnection = (connection: Connection | FlowEdge) =>
-    !wouldCycle(patchEdges(), connection.source, connection.target);
+  const nodeOf = (id: string) => nodes.find((node) => node.id === id);
+  const defOf = (id: string) => getDef(nodeOf(id)?.data.fn ?? "");
+
+  // A picture goes into a texture input, a number into a parameter, and nothing goes round in a loop
+  const isValidConnection = (connection: Connection | FlowEdge) => {
+    const from = defOf(connection.source);
+    const to = defOf(connection.target);
+    if (!from || !to || !fits(from, to, connection.targetHandle ?? "in")) return false;
+    return !wouldCycle(patchEdges(), connection.source, connection.target);
+  };
+
+  /**
+   * A control wired in for the first time takes on the range of the parameter
+   * it drives, so that plugging it in shows at once: an lfo sweeps all of it,
+   * sound pushes up from where the parameter stands.
+   */
+  function tuned(control: FlowNode, target: FlowNode | undefined, input: string): FlowNode {
+    const kind = getDef(control.data.fn)?.control;
+    const name = inputParam(input);
+    const param = target && getDef(target.data.fn)?.params.find((known) => known.name === name);
+    if (!kind || !target || !param) return control;
+    const { min, max } = control.data.params;
+    const untouched = (min?.value ?? 0) === 0 && (max?.value ?? 1) === 1;
+    if (!untouched || edges.some((edge) => edge.source === control.id)) return control;
+    const current = target.data.params[param.name]?.value ?? param.default;
+    const from = kind === "audio" ? current : Math.min(param.min, current);
+    const to = Math.max(param.max, current);
+    const params = { ...control.data.params, min: { value: from }, max: { value: to } };
+    return { ...control, data: { ...control.data, params } };
+  }
 
   // An input holds one wire: plugging another in replaces it
   function onbeforeconnect(connection: Connection) {
-    edges = connect(patchEdges(), toPatchEdge(connection)).map(toFlowEdge);
+    const edge = toPatchEdge(connection);
+    const control = nodeOf(edge.source);
+    if (control && getDef(control.data.fn)?.control) {
+      const ready = tuned(control, nodeOf(edge.target), edge.input);
+      if (ready !== control) nodes = nodes.map((node) => (node === control ? ready : node));
+    }
+    edges = connect(patchEdges(), edge).map(toFlowEdge);
     return null;
   }
 
@@ -249,6 +289,8 @@
     const { clientX: x, clientY: y } = "changedTouches" in event ? event.changedTouches[0] : event;
     const at = flow.screenToFlowPosition({ x, y });
     const outgoing = fromHandle.type === "source";
+    // A number has to go into a parameter: let go in the open, it has nowhere to be
+    if (outgoing && defOf(fromNode.id)?.control) return;
     palette = {
       x,
       y,
@@ -256,7 +298,7 @@
       from: {
         nodeId: fromNode.id,
         type: fromHandle.type,
-        input: fromHandle.id === "by" ? "by" : "in",
+        input: toPatchEdge({ source: "", target: "", targetHandle: fromHandle.id }).input,
       },
     };
   };
@@ -294,7 +336,8 @@
     const wires = edges.filter((edge) => edge.selected);
     if (selected.length === 0 && wires.length === 1) {
       const source = nodes.find((node) => node.id === wires[0].source);
-      if (source) {
+      // Only a picture can pass through another node: a number goes straight into its parameter
+      if (source && !getDef(source.data.fn)?.control) {
         const position = slotAfter(source);
         const onEdge = toPatchEdge(wires[0]);
         palette = { ...flow.flowToScreenPosition(position), position, after: source.id, onEdge };
@@ -302,7 +345,8 @@
       }
     }
     const anchor = selected.length === 1 ? selected[0] : undefined;
-    if (anchor && getDef(anchor.data.fn)?.hasOutput) {
+    const anchorDef = anchor && getDef(anchor.data.fn);
+    if (anchor && anchorDef?.hasOutput && !anchorDef.control) {
       const position = slotAfter(anchor);
       palette = { ...flow.flowToScreenPosition(position), position, after: anchor.id };
       return;
@@ -317,7 +361,11 @@
   function accepts(request: PaletteRequest): ((def: NodeDef) => boolean) | undefined {
     if (request.onEdge) return (def) => def.inputs >= 1 && def.hasOutput;
     if (request.from?.type === "source") return (def) => def.inputs >= 1;
-    if (request.from?.type === "target") return (def) => def.hasOutput;
+    if (request.from?.type === "target") {
+      // Out of a parameter's socket: only something that makes a number fits
+      const value = inputParam(request.from.input) !== undefined;
+      return (def) => def.hasOutput && Boolean(def.control) === value;
+    }
     return undefined;
   }
 
@@ -349,6 +397,7 @@
     let others = nodes;
     const anchor = request.after ? nodes.find((node) => node.id === request.after) : undefined;
     const node = newNode(def, position);
+    let added = node;
 
     if (anchor && request.onEdge) {
       others = makeRoom(anchor, position);
@@ -367,10 +416,11 @@
       next = connect(next, { source: request.from.nodeId, target: node.id, input: "in" });
     } else if (request.from?.type === "target") {
       const { nodeId: target, input } = request.from;
+      added = tuned(node, nodeOf(target), input);
       next = connect(next, { source: node.id, target, input });
     }
 
-    nodes = [...others.map(deselected), { ...node, position, selected: true }];
+    nodes = [...others.map(deselected), { ...added, position, selected: true }];
     edges = next.map(toFlowEdge);
   }
 

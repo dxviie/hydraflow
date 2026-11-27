@@ -3,6 +3,7 @@
     Handle,
     type NodeProps,
     Position,
+    useConnection,
     useNodeConnections,
     useNodesData,
     useSvelteFlow,
@@ -11,12 +12,14 @@
   import { getContext, tick } from "svelte";
 
   import type { FlowNode } from "../flow";
-  import { nodeCode } from "../graph/compile";
-  import type { ParamState } from "../graph/types";
-  import { CATEGORIES, getDef } from "../hydra/catalog";
+  import { controlCode, nodeCode, type WireNames } from "../graph/compile";
+  import { controlDrive } from "../graph/params";
+  import { inputParam, type ParamState, paramInput } from "../graph/types";
+  import { CATEGORIES, getDef, type ParamDef } from "../hydra/catalog";
   import { PREVIEW_HEIGHT, PREVIEW_WIDTH } from "../hydra/engine";
   import { EDITOR, type EditorContext } from "./context";
   import ParamRow from "./ParamRow.svelte";
+  import Scope from "./Scope.svelte";
   import SourceRows from "./SourceRows.svelte";
 
   let { id, data, selected = false }: NodeProps<FlowNode> = $props();
@@ -29,15 +32,84 @@
   const category = $derived(def && CATEGORIES[def.category]);
   const collapsed = $derived(data.collapsed === true);
   const showAll = $derived(selected || data.more === true);
-  const shownParams = $derived(
-    def ? (showAll ? def.params : def.params.slice(0, def.primary)) : [],
-  );
-  const hidden = $derived(def ? def.params.length - shownParams.length : 0);
   const showPreview = $derived(!collapsed && data.preview === true);
 
   // What is plugged into the second input, to name it on the "by" row
-  const mixed = useNodeConnections(() => ({ handleType: "target", handleId: "by" }));
-  const mixedNode = useNodesData<FlowNode>(() => ({ nodeIds: mixed.current[0]?.source }));
+  const incoming = useNodeConnections(() => ({ handleType: "target" }));
+  const mixedNode = useNodesData<FlowNode>(() => ({
+    nodeIds: incoming.current.find((wire) => wire.targetHandle === "by")?.source,
+  }));
+
+  /** The control wired into each parameter that has one, by parameter name */
+  const wires = $derived.by(() => {
+    const found: WireNames = {};
+    for (const wire of incoming.current) {
+      const param = inputParam(wire.targetHandle ?? "");
+      const name = param === undefined ? undefined : editor.controlName(wire.source);
+      if (param !== undefined && name) found[param] = { name };
+    }
+    return found;
+  });
+
+  // At rest: the main parameters, and any other a control is wired into
+  const shownParams = $derived(
+    def ? def.params.filter((param, at) => showAll || at < def.primary || param.name in wires) : [],
+  );
+  const hidden = $derived(def ? def.params.length - shownParams.length : 0);
+
+  /* ── A control node: a number, the function that makes it, and what it reaches ── */
+
+  const control = $derived(
+    def?.control
+      ? {
+          name: editor.controlName(id) ?? def.type,
+          drive: controlDrive(def.control, { id, ...data }),
+        }
+      : undefined,
+  );
+
+  // Its from and to scrub in the range of the parameters it is wired into
+  const feeds = useNodeConnections(() => ({ handleType: "source" }));
+  const fed = useNodesData<FlowNode>(() => ({ nodeIds: feeds.current.map((wire) => wire.target) }));
+  const reach = $derived.by(() => {
+    let range: { min: number; max: number; step: number } | undefined;
+    for (const wire of feeds.current) {
+      const target = fed.current.find((node) => node.id === wire.target);
+      const name = inputParam(wire.targetHandle ?? "");
+      const param = target && getDef(target.data.fn)?.params.find((known) => known.name === name);
+      if (!param) continue;
+      range = {
+        min: Math.min(param.min, range?.min ?? param.min),
+        max: Math.max(param.max, range?.max ?? param.max),
+        step: Math.min(param.step, range?.step ?? param.step),
+      };
+    }
+    return range;
+  });
+  const settingDef = (param: ParamDef): ParamDef =>
+    reach && (param.name === "min" || param.name === "max") ? { ...param, ...reach } : param;
+
+  // While a number is being dragged out of a control, every parameter shows where it can go
+  const connection = useConnection();
+  const offering = $derived.by(() => {
+    const dragged = connection.current;
+    return dragged.inProgress && Boolean(getDef(String(dragged.fromNode.data.fn))?.control);
+  });
+
+  let copied = $state(false);
+  let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+
+  async function copyCode() {
+    if (!control) return;
+    try {
+      await navigator.clipboard.writeText(controlCode(control));
+      copied = true;
+      clearTimeout(copiedTimer);
+      copiedTimer = setTimeout(() => (copied = false), 1500);
+    } catch {
+      copied = false;
+    }
+  }
 
   let canvas = $state<HTMLCanvasElement>();
 
@@ -66,7 +138,13 @@
 </script>
 
 {#if def && category}
-  <div class="node" class:selected class:collapsed style:--category={category.color}>
+  <div
+    class="node"
+    class:selected
+    class:collapsed
+    class:offering
+    style:--category={category.color}
+  >
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="head"
@@ -74,11 +152,13 @@
       ondblclick={() => updateNodeData(id, { collapsed: !collapsed })}
     >
       {#if collapsed}
-        <span class="name line">{nodeCode({ id, ...data }, def)}</span>
+        <span class="name line"
+          >{control ? `${control.name} = ` : ""}{nodeCode({ id, ...data }, def, wires)}</span
+        >
       {:else}
-        <span class="name">{def.type}</span>
+        <span class="name">{control?.name ?? def.type}</span>
       {/if}
-      {#if selected && !collapsed}
+      {#if selected && !collapsed && !control}
         <button
           class="tool nodrag"
           class:on={data.preview}
@@ -117,9 +197,11 @@
 
       {#each shownParams as param (param.name)}
         <ParamRow
-          def={param}
+          def={control ? settingDef(param) : param}
           param={paramOf(param.name, param.default)}
           active={selected}
+          wired={wires[param.name]?.name}
+          plain={control !== undefined}
           onchange={(next) => setParam(param.name, next)}
         />
       {/each}
@@ -142,6 +224,20 @@
         ></canvas>
       {/if}
 
+      {#if control}
+        <Scope
+          read={() => editor.engine?.controlValue(id)}
+          min={control.drive.min}
+          max={control.drive.max}
+        />
+        {#if selected}
+          <div class="code nodrag nopan">
+            <code>{controlCode(control)}</code>
+            <button onclick={copyCode}>{copied ? "copied" : "copy"}</button>
+          </div>
+        {/if}
+      {/if}
+
       {#if selected}
         <div class="doc">// {def.doc}</div>
       {/if}
@@ -158,8 +254,19 @@
     {#if def.inputs === 2 && collapsed}
       <Handle type="target" position={Position.Left} id="by" class="folded" />
     {/if}
+    {#if collapsed}
+      <!-- Folded, the wires into its parameters still need somewhere to end -->
+      {#each Object.keys(wires) as param (param)}
+        <Handle type="target" position={Position.Left} id={paramInput(param)} class="folded value" />
+      {/each}
+    {/if}
     {#if def.hasOutput}
-      <Handle type="source" position={Position.Right} id="out" class="main" />
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="out"
+        class={control ? "main value" : "main"}
+      />
     {/if}
   </div>
 {/if}
@@ -285,6 +392,41 @@
     aspect-ratio: 16 / 9;
     border-top: 1px solid var(--rule);
     background: #000;
+  }
+
+  /* The function a control node is, to read and to take along */
+  .code {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 7px 4px 7px 10px;
+    border-top: 1px solid var(--rule);
+    cursor: text;
+  }
+
+  .code code {
+    flex: 1;
+    min-width: 0;
+    font: inherit;
+    font-size: 11px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  .code button {
+    flex: none;
+    height: 18px;
+    padding: 0 6px;
+    border: 1px solid var(--violet-edge);
+    font-size: 11px;
+  }
+
+  .code button:hover {
+    border-color: var(--text);
+    background: var(--text);
+    color: #000;
   }
 
   .doc {

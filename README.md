@@ -27,16 +27,22 @@ This is an early version. It runs in the browser and keeps your patch in the bro
   Folded: one line of code, `osc(40, 0.06)`.
 - **Every value is set by dragging.** Drag a row sideways (Shift for fine steps), or double-click
   to type a number, also one outside the row's range.
-- **`~` makes a number move**: a sequence, an LFO, an audio band or the mouse. The microphone is
-  only asked for once something listens to it.
+- **`~` makes a number move**: a sequence, an LFO, an audio band or the mouse, right on the row.
+  The microphone is only asked for once something listens to it.
+- **Control nodes** make a number instead of a picture: `lfo` and `audio`. Drag from a control's
+  round socket to a parameter's, or drag out of a parameter's socket and pick one. One control can
+  feed several parameters, and plugged in for the first time it takes on the range of what it
+  drives. The node draws its number as a moving trace and, selected, shows the JavaScript it is,
+  to read or copy: `var lfo = () => 12.5 + 11.5 * Math.sin(time * 0.2 * 6.283)`.
 - **A live preview on any node**, to see the picture at that point of the chain.
 - **Adding is quick.** Tab or a double-click opens a search. With a node selected the new node
   joins its chain and the rest moves along; with a wire selected it goes into that wire; a wire
   dropped on empty canvas asks what should go there.
 - **Deleting a node closes the gap** it leaves in its chain.
 - **The patch as code**: the `code` button shows it as a hydra sketch, ready to paste into
-  HYDRACTRL or any hydra editor. A file of yours is written as `/media/<name>`, where HYDRACTRL's
-  desktop app serves its media folder.
+  HYDRACTRL or any hydra editor. A control node is a function with a name at the top of the
+  sketch; a file of yours is written as `/media/<name>`, where HYDRACTRL's desktop app serves its
+  media folder.
 - **Share a patch as a link.** The patch travels in the part of the address after the `#`, so no
   server ever sees it. Files don't travel: whoever opens the link chooses their own. Opening a
   link sets your own patch aside, and one click brings it back.

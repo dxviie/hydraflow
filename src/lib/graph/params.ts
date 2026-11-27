@@ -2,7 +2,7 @@
  * What a parameter is worth right now, and how it reads as hydra code.
  * The two stay in step: the code a patch exports draws what the patch draws.
  */
-import type { Drive, DriveMode, ParamState, Wave } from "./types";
+import type { ControlKind, Drive, DriveMode, ParamState, PatchNode, Wave } from "./types";
 
 /** What a driven parameter can react to, each frame */
 export interface Env {
@@ -58,6 +58,22 @@ export function evalDrive(drive: Drive, env: Env): number {
     case "mouse":
       return drive.min + (drive.max - drive.min) * env.mouse[drive.axis];
   }
+}
+
+/**
+ * A control node is a drive with a place of its own: what its settings add
+ * up to. Its number and its code are then the drive's.
+ */
+export function controlDrive(
+  kind: ControlKind,
+  node: PatchNode,
+): Extract<Drive, { mode: ControlKind }> {
+  const setting = (name: string, fallback: number) => node.params[name]?.value ?? fallback;
+  const min = setting("min", 0);
+  const max = setting("max", 1);
+  if (kind === "audio") return { mode: "audio", bin: node.option ?? 0, min, max };
+  const wave = WAVES[node.option ?? 0] ?? "sine";
+  return { mode: "lfo", wave, rate: setting("rate", 0.2), min, max };
 }
 
 export function evalParam(param: ParamState, env: Env): number {

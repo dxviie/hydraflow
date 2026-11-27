@@ -9,9 +9,9 @@
 import Hydra from "hydra-synth";
 
 import { buildChain, type Chain, type Compiled, type Expr, type Source } from "../graph/compile";
-import { type Env, evalParam } from "../graph/params";
-import type { ParamState, PatchNode } from "../graph/types";
-import { MAX_SOURCES } from "./catalog";
+import { controlDrive, type Env, evalDrive, evalParam } from "../graph/params";
+import type { Drive, ParamState, PatchNode } from "../graph/types";
+import { getDef, MAX_SOURCES } from "./catalog";
 import { type OpenInput, openCamera, openImage, openScreen, openVideo } from "./inputs";
 
 export const PREVIEW_WIDTH = 256;
@@ -62,6 +62,8 @@ export class Engine {
   private hydra: Hydra;
   private synth: Chain;
   private params = new Map<string, Record<string, ParamState>>();
+  /** What each control node's settings add up to right now, by node */
+  private controls = new Map<string, Drive>();
   private compiled: Compiled | undefined;
   private previews = new Map<string, Preview>();
   private previewQueue: string[] = [];
@@ -130,9 +132,13 @@ export class Engine {
   /** The values hydra reads every frame. Cheap: call it on every change. */
   setParams(nodes: PatchNode[]) {
     this.params.clear();
+    this.controls.clear();
     let audio = false;
     for (const node of nodes) {
       this.params.set(node.id, node.params);
+      const control = getDef(node.fn)?.control;
+      if (control) this.controls.set(node.id, controlDrive(control, node));
+      audio ||= control === "audio";
       for (const name in node.params) audio ||= node.params[name].drive?.mode === "audio";
     }
     if (audio) this.enableAudio();
@@ -291,12 +297,21 @@ export class Engine {
   private chainOf(expr: Expr): Chain {
     return buildChain(expr, {
       synth: this.synth,
-      arg: (node, name, fallback) => (props?: { time?: number }) => {
+      arg: (node, name, fallback, control) => (props?: { time?: number }) => {
         if (props?.time !== undefined) this.env.time = props.time;
+        // A wire wins over the parameter's own value: the control's number, read as it is now
+        const wired = control && this.controls.get(control.nodeId);
+        if (wired) return evalDrive(wired, this.env);
         const state = this.params.get(node.id)?.[name];
         return state ? evalParam(state, this.env) : fallback;
       },
     });
+  }
+
+  /** The number a control node gives right now, for the node to show */
+  controlValue(nodeId: string): number | undefined {
+    const drive = this.controls.get(nodeId);
+    return drive && evalDrive(drive, this.env);
   }
 
   /** A draw command for one node's texture, into the shared preview target */

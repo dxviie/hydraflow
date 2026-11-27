@@ -5,7 +5,14 @@
 import type { Edge, Node } from "@xyflow/svelte";
 
 import type { SavedNode, SavedPatch } from "./graph/storage";
-import type { InputName, MediaRef, ParamState, Patch, PatchEdge } from "./graph/types";
+import {
+  type InputName,
+  inputParam,
+  type MediaRef,
+  type ParamState,
+  type Patch,
+  type PatchEdge,
+} from "./graph/types";
 import { getDef, type NodeDef } from "./hydra/catalog";
 
 export interface HydraNodeData extends Record<string, unknown> {
@@ -42,6 +49,8 @@ export function toFlowEdge(edge: PatchEdge): FlowEdge {
     target: edge.target,
     sourceHandle: "out",
     targetHandle: edge.input,
+    // A wire that carries a number is drawn apart from the ones that carry a picture
+    class: inputParam(edge.input) === undefined ? undefined : "value",
   };
 }
 
@@ -50,7 +59,9 @@ export function toPatchEdge(edge: {
   target: string;
   targetHandle?: string | null;
 }): PatchEdge {
-  const input: InputName = edge.targetHandle === "by" ? "by" : "in";
+  const handle = edge.targetHandle ?? "in";
+  const input: InputName =
+    handle === "by" || inputParam(handle) !== undefined ? (handle as InputName) : "in";
   return { source: edge.source, target: edge.target, input };
 }
 
