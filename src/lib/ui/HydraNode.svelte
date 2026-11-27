@@ -15,6 +15,7 @@
   import { controlCode, nodeCode, type WireNames } from "../graph/compile";
   import { controlDrive } from "../graph/params";
   import { inputParam, type ParamState, paramInput } from "../graph/types";
+  import { audioNote } from "../hydra/audio";
   import { CATEGORIES, getDef, type ParamDef } from "../hydra/catalog";
   import { PREVIEW_HEIGHT, PREVIEW_WIDTH } from "../hydra/engine";
   import { EDITOR, type EditorContext } from "./context";
@@ -33,6 +34,19 @@
   const collapsed = $derived(data.collapsed === true);
   const showAll = $derived(selected || data.more === true);
   const showPreview = $derived(!collapsed && data.preview === true);
+
+  // An audio node offers the bands its patch cuts the sound into: past four, by number alone
+  const options = $derived.by(() => {
+    if (def?.control !== "audio") return def?.options;
+    const bands = def.options?.slice(0, editor.audio.bins) ?? [];
+    return bands.length > 4 ? bands.map((_, band) => String(band)) : bands;
+  });
+  // What an audio node can't work without: a microphone it may use
+  const silent = $derived(
+    def?.control === "audio" && ["blocked", "failed"].includes(editor.hearing.status)
+      ? audioNote(editor.hearing)
+      : "",
+  );
 
   // What is plugged into the second input, to name it on the "by" row
   const incoming = useNodeConnections(() => ({ handleType: "target" }));
@@ -180,9 +194,9 @@
         </div>
       {/if}
 
-      {#if def.options}
+      {#if options}
         <div class="options nodrag" role="group" aria-label="{def.type} uses">
-          {#each def.options as option, index (option)}
+          {#each options as option, index (option)}
             <button
               aria-pressed={(data.option ?? 0) === index}
               onclick={() => updateNodeData(id, { option: index })}>{option}</button
@@ -230,6 +244,9 @@
           min={control.drive.min}
           max={control.drive.max}
         />
+        {#if silent}
+          <div class="doc silent" role="status">// {silent}</div>
+        {/if}
         {#if selected}
           <div class="code nodrag nopan">
             <code>{controlCode(control)}</code>
@@ -435,6 +452,10 @@
     color: var(--dim);
     font-size: 11px;
     line-height: 1.3;
+  }
+
+  .silent {
+    color: var(--soft);
   }
 
   /* The chain runs through the title: in on the left, out on the right */

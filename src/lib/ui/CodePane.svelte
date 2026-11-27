@@ -46,13 +46,14 @@
   section {
     position: fixed;
     left: 24px;
+    /* As wide as the code is, up to the zoom buttons in the corner */
+    right: 156px;
     bottom: calc(var(--status-h) + 20px);
     z-index: 15;
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     gap: 8px;
-    max-width: min(640px, calc(100vw - 180px));
     max-height: 50vh;
     font-size: 13px;
     pointer-events: none;

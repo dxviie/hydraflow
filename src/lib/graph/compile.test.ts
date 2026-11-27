@@ -130,6 +130,85 @@ describe("toCode", () => {
       ].join("\n"),
     );
   });
+
+  test("ends with render() when all four outputs show, and with nothing for o0", () => {
+    const patch: Patch = {
+      nodes: [node("a", "osc"), node("o", "out", {}, 1)],
+      edges: [{ source: "a", target: "o", input: "in" }],
+    };
+    expect(toCode(compile(patch), "all")).toBe("osc()\n  .out(o1)\n\nrender()");
+    expect(toCode(compile(patch), 0)).toBe("osc()\n  .out(o1)");
+  });
+});
+
+describe("how the sound is read", () => {
+  const audio = { bins: 6, cutoff: 2, smooth: 0.8, scale: 10 };
+  const listening = (fn: string): PatchNode => {
+    const made = node("a", fn);
+    made.params.sync = { value: 0.1, drive: { mode: "audio", bin: 5, min: 0, max: 1 } };
+    return made;
+  };
+
+  test("is said before a sketch that listens, where it isn't hydra's own way", () => {
+    const patch: Patch = {
+      nodes: [node("c", "cam"), node("n", "noise"), listening("osc"), node("o", "out")],
+      edges: [
+        { source: "c", target: "n", input: "in" },
+        { source: "a", target: "o", input: "in" },
+      ],
+    };
+    expect(toCode(compile(patch), 0, audio)).toBe(
+      [
+        "s0.initCam(0)",
+        "",
+        "a.setBins(6)",
+        "a.setSmooth(0.8)",
+        "",
+        "osc(60, () => a.fft[5])",
+        "  .out(o0)",
+      ].join("\n"),
+    );
+    expect(toCode(compile(patch))).toBe("s0.initCam(0)\n\nosc(60, () => a.fft[5])\n  .out(o0)");
+  });
+
+  test("is said when the listening is done by an audio node, or in what is mixed in", () => {
+    const wired: Patch = {
+      nodes: [node("mic", "audio", {}, 1), node("a", "osc"), node("o", "out")],
+      edges: [
+        { source: "a", target: "o", input: "in" },
+        { source: "mic", target: "a", input: "p:offset" },
+      ],
+    };
+    expect(toCode(compile(wired), 0, audio)).toStartWith(
+      "a.setBins(6)\na.setSmooth(0.8)\n\nvar audio = () => a.fft[1]\n\n",
+    );
+    const mixed: Patch = {
+      nodes: [node("n", "noise"), listening("osc"), node("m", "modulate"), node("o", "out")],
+      edges: [
+        { source: "n", target: "m", input: "in" },
+        { source: "a", target: "m", input: "by" },
+        { source: "m", target: "o", input: "in" },
+      ],
+    };
+    expect(toCode(compile(mixed), 0, audio)).toStartWith("a.setBins(6)\na.setSmooth(0.8)\n\n");
+  });
+
+  test("goes unsaid in a sketch that doesn't listen", () => {
+    const quiet: Patch = {
+      // The one node that listens isn't wired to an output, and a wire wins over a drive
+      nodes: [listening("osc"), node("l", "lfo"), node("b", "osc"), node("o", "out")],
+      edges: [{ source: "b", target: "o", input: "in" }],
+    };
+    expect(toCode(compile(quiet), 0, audio)).toBe("osc()\n  .out(o0)");
+    const overruled: Patch = {
+      nodes: [listening("osc"), node("l", "lfo"), node("o", "out")],
+      edges: [
+        { source: "a", target: "o", input: "in" },
+        { source: "l", target: "a", input: "p:sync" },
+      ],
+    };
+    expect(toCode(compile(overruled), 0, audio)).not.toContain("a.set");
+  });
 });
 
 describe("inputs", () => {

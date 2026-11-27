@@ -1,14 +1,17 @@
 <script lang="ts">
   interface Props {
     codeShown: boolean;
+    audioShown: boolean;
     onadd: () => void;
     oncode: () => void;
+    onaudio: () => void;
     onshare: () => void;
     onreset: () => void;
     onperform: () => void;
   }
 
-  let { codeShown, onadd, oncode, onshare, onreset, onperform }: Props = $props();
+  let { codeShown, audioShown, onadd, oncode, onaudio, onshare, onreset, onperform }: Props =
+    $props();
 </script>
 
 <header>
@@ -17,6 +20,11 @@
     <div class="group">
       <button onclick={onadd} title="add a node (Tab)">add node <kbd>tab</kbd></button>
       <button aria-pressed={codeShown} onclick={oncode} title="the patch as hydra code">code</button>
+      <button
+        aria-pressed={audioShown}
+        onclick={onaudio}
+        title="what the patch listens to, and how it reads the sound">audio</button
+      >
       <button onclick={onshare} title="copy a link that opens this patch">share</button>
       <button onclick={onreset} title="start again from the starter patch">new</button>
     </div>

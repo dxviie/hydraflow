@@ -21,7 +21,8 @@ This is an early version. It runs in the browser and keeps your patch in the bro
   has four inputs. Drop a picture or a video on the canvas, or choose one in the node. Your files
   are kept in this browser and go nowhere else.
 - **The output plays fullscreen behind the patch**, dimmed while you edit and at full strength
-  when you perform.
+  when you perform. The status line picks which output plays, o0 to o3, or `all` four at once, a
+  quarter each.
 - **A node shows what you need, when you need it.** At rest: the one or two parameters that
   matter. Selected: all of them, a line on what the node does, and what can drive each one.
   Folded: one line of code, `osc(40, 0.06)`.
@@ -34,6 +35,13 @@ This is an early version. It runs in the browser and keeps your patch in the bro
   feed several parameters, and plugged in for the first time it takes on the range of what it
   drives. The node draws its number as a moving trace and, selected, shows the JavaScript it is,
   to read or copy: `var lfo = () => 12.5 + 11.5 * Math.sin(time * 0.2 * 6.283)`.
+- **Audio settings**, under `audio` in the top bar. Choose the input the patch listens to: the
+  system default, or any other your browser offers; it is remembered in this browser and found
+  again by its name. Set how the sound is read with hydra's own four settings: `bins` (up to 8),
+  `cutoff`, `smooth` and `scale`. Those go with the patch: they are saved, shared and undone with
+  it. And switch on the visualiser, which shows each band as it comes in: a band reads 0 at the
+  lower line and 1 at the upper. It stays up after the settings are closed, and goes when you
+  perform.
 - **A live preview on any node**, to see the picture at that point of the chain.
 - **Adding is quick.** Tab or a double-click opens a search. With a node selected the new node
   joins its chain and the rest moves along; with a wire selected it goes into that wire; a wire
@@ -42,7 +50,8 @@ This is an early version. It runs in the browser and keeps your patch in the bro
 - **The patch as code**: the `code` button shows it as a hydra sketch, ready to paste into
   HYDRACTRL or any hydra editor. A control node is a function with a name at the top of the
   sketch; a file of yours is written as `/media/<name>`, where HYDRACTRL's desktop app serves its
-  media folder.
+  media folder. A sketch that listens starts with the audio settings that aren't hydra's own
+  (`a.setBins(6)`), and ends with `render(o1)` or `render()` when it isn't o0 that plays.
 - **Share a patch as a link.** The patch travels in the part of the address after the `#`, so no
   server ever sees it. Files don't travel: whoever opens the link chooses their own. Opening a
   link sets your own patch aside, and one click brings it back.
@@ -89,11 +98,13 @@ The build is a static site: any static host works, with `bun run build` as the b
 
 - `src/lib/graph/` is the patch itself, with no browser or Svelte in it: the types, the compiler
   from a patch to hydra (`compile.ts`: as code to read, and as hydra's own chain objects to run),
-  what drives a parameter (`params.ts`), changes to the wiring (`edit.ts`), reading a saved patch
-  (`storage.ts`) and undo (`history.ts`). All of it is unit tested.
+  what drives a parameter (`params.ts`), how the sound becomes `a.fft` (`audio.ts`), changes to
+  the wiring (`edit.ts`), reading a saved patch (`storage.ts`) and undo (`history.ts`). All of it
+  is unit tested.
 - `src/lib/hydra/` is hydra: the node catalog built from hydra's function definitions
-  (`catalog.ts`), the engine around the hydra instance (`engine.ts`) and what opens a camera, a
-  screen or a file for it (`inputs.ts`).
+  (`catalog.ts`), the engine around the hydra instance (`engine.ts`), what opens a camera, a
+  screen or a file for it (`inputs.ts`) and what listens to the audio input you chose
+  (`audio.ts`).
 - `src/lib/share.ts` packs a patch into a link and reads one back; `src/lib/media.ts` keeps
   pictures and videos in the browser.
 - `src/lib/ui/` is the interface: the editor around Svelte Flow, the node, its rows, the palette.

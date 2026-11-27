@@ -6,7 +6,8 @@
  */
 import glslFunctions from "hydra-synth/src/glsl/glsl-functions.js";
 
-import { AUDIO_BINS, WAVES } from "../graph/params";
+import { MAX_AUDIO_BINS } from "../graph/audio";
+import { WAVES } from "../graph/params";
 import type { ControlKind } from "../graph/types";
 
 export type Category =
@@ -37,7 +38,7 @@ export interface NodeDef {
   params: ParamDef[];
   /** How many parameters show at rest, before "+ n more" */
   primary: number;
-  /** Buffers or devices to pick from (`out`, `src`, `cam`) */
+  /** Buffers, devices, waves or bands to pick from (`out`, `src`, `cam`, `lfo`, `audio`) */
   options?: string[];
   /** It brings something in from outside, on one of hydra's inputs (s0 to s3) */
   source?: SourceKind;
@@ -319,7 +320,8 @@ const SPECIAL: NodeDef[] = [
     hasOutput: true,
     params: FROM_TO,
     primary: 2,
-    options: Array.from({ length: AUDIO_BINS }, (_, bin) => `fft ${bin}`),
+    // Every band a patch can have: a node offers the ones its patch cuts the sound into
+    options: Array.from({ length: MAX_AUDIO_BINS }, (_, bin) => `fft ${bin}`),
     control: "audio",
     doc: "how loud one band of the sound is",
   },
