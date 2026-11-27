@@ -1,3 +1,5 @@
+<img src="./public/logo.svg" alt="" width="96" align="right">
+
 ![hydraflow: a patch of nodes, playing over the visuals it makes](./docs/hydraflow.jpg)
 
 # hydraflow
@@ -10,7 +12,8 @@ together, and watch the result play behind your patch. From the same family as
 [HYDRACTRL](https://github.com/dxviie/HYDRACTRL), which is where a patch can go next: every patch
 is also a hydra sketch you can copy out.
 
-This is an early version. It runs in the browser and keeps your patch in the browser's storage.
+Play it at [hydraflow.d17e.dev](https://hydraflow.d17e.dev/). This is an early version. It runs in
+the browser and keeps your patch in the browser's storage.
 
 ## What it does
 
@@ -82,8 +85,10 @@ bun dev
 | `bun run check` | Type-check the Svelte and TypeScript sources |
 | `bun run lint` / `bun run format` | Biome |
 
-The build is a static site: any static host works, with `bun run build` as the build command and
-`dist` as the output directory.
+The build is a static site of two pages: the landing page (`index.html`) and the editor
+(`app.html`, served at `/app`). Any static host that serves `app.html` at `/app` works, Cloudflare
+Pages among them, with `bun run build` as the build command and `dist` as the output directory.
+`bun dev` and `bun run preview` serve both.
 
 ## How it is put together
 
@@ -97,6 +102,9 @@ The build is a static site: any static host works, with `bun run build` as the b
 - `src/lib/share.ts` packs a patch into a link and reads one back; `src/lib/media.ts` keeps
   pictures and videos in the browser.
 - `src/lib/ui/` is the interface: the editor around Svelte Flow, the node, its rows, the palette.
+- `src/site/` is the landing page: HTML that reads without JavaScript, and a script that plays a
+  small patch behind it on the editor's own engine, with numbers to drag and a link that opens it
+  in the editor.
 
 Two choices shape the rest. Parameters reach hydra as functions it calls every frame, so
 changing a value never recompiles a shader; only a change of wiring does. And a patch is data all

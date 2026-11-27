@@ -2,18 +2,518 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // Share links from before this landing page opened the editor at the
+      // site root (/#patch=...). Fragments never reach the server: forward them.
+      if (/^#patch=/.test(location.hash)) location.replace("/app" + location.hash);
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>hydraflow · patch hydra visuals with nodes</title>
+    <title>hydraflow · play with hydra visuals, no code needed</title>
     <meta
       name="description"
-      content="hydraflow is a node-based editor for the hydra video synth: wire sources, transforms and blends together and watch the result play behind your patch."
+      content="hydraflow is a free, open source way to play with the hydra video synth without writing code: wire boxes together, drag the numbers and watch the visuals change. Runs in your browser."
     />
+    <meta name="author" content="David Vandenbogaerde" />
     <meta name="theme-color" content="#050505" />
-    <link rel="preload" href="/fonts/fira-code-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="canonical" href="https://hydraflow.d17e.dev/" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="preload" href="/fonts/martian-mono-latin-standard-normal.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/fira-code-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
+
+    <meta property="og:title" content="hydraflow · play with hydra, no code needed" />
+    <meta
+      property="og:description"
+      content="Wire boxes together, drag the numbers and watch the visuals change. A node editor for the hydra video synth, in your browser."
+    />
+    <meta property="og:image" content="https://hydraflow.d17e.dev/site/hydraflow-card.jpg" />
+    <meta property="og:url" content="https://hydraflow.d17e.dev/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "hydraflow",
+        "url": "https://hydraflow.d17e.dev/",
+        "applicationCategory": "MultimediaApplication",
+        "operatingSystem": "Web browser",
+        "description": "A node-based editor for the hydra video synth: play with live visuals without writing code.",
+        "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" },
+        "author": { "@type": "Person", "name": "David Vandenbogaerde", "url": "https://www.d17e.dev" }
+      }
+    </script>
+
+    <link rel="stylesheet" href="/src/site/landing.css" />
+    <script type="module" src="/src/site/landing.ts"></script>
   </head>
+
   <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.ts"></script>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <div class="backdrop" aria-hidden="true">
+      <canvas id="backdrop"></canvas>
+    </div>
+
+    <header class="top" data-top>
+      <div class="wrap top-inner">
+        <a class="brand" href="/" aria-label="hydraflow home">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span class="brand-name" aria-hidden="true">hydraflow</span>
+        </a>
+        <nav class="nav" aria-label="Sections">
+          <a href="#how">How it works</a>
+          <a href="#play">Things to try</a>
+          <a href="#code">The code</a>
+          <a href="https://github.com/dxviie/hydraflow">GitHub</a>
+        </nav>
+        <a class="btn btn-run btn-sm" href="/app"
+          ><span class="tri" aria-hidden="true"></span><span class="lbl">Start patching</span></a
+        >
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="wrap">
+          <div class="col grid hero-grid">
+            <div class="hero-text">
+              <span class="edge" aria-hidden="true" data-edge></span>
+              <p class="kicker">
+                <span class="hl"
+                  ><span aria-hidden="true">// </span><span class="lc">Free and open source. No code needed.</span></span
+                >
+              </p>
+              <h1 id="hero-title"><span class="h1-box">hydraflow</span></h1>
+              <p class="lead">
+                <span class="hl"
+                  >Play with hydra without writing code. Wire boxes together, drag the numbers, and watch the
+                  visuals change as you go.</span
+                >
+              </p>
+              <div class="ctas">
+                <a class="btn btn-run" href="/app"
+                  ><span class="tri" aria-hidden="true"></span><span class="lbl">Start patching</span></a
+                >
+                <a class="btn btn-line" href="#how"
+                  ><span class="arrow" aria-hidden="true">↓</span><span class="lbl">See how it works</span></a
+                >
+              </div>
+              <p class="note">
+                <span class="hl"
+                  >Runs in your browser. Nothing to install, no account, and your patches stay on your computer.</span
+                >
+              </p>
+            </div>
+
+            <figure class="patch" data-patch>
+              <span class="edge" aria-hidden="true" data-edge></span>
+              <figcaption class="patch-head">
+                <span class="patch-file"
+                  >this page<span class="visually-hidden">: the patch playing behind it. Drag a number to change
+                    it.</span></span
+                >
+                <a class="patch-open" href="/app" data-patch-open
+                  ><span class="hint" aria-hidden="true">open it in the editor</span
+                  ><span class="go"><span class="tri" aria-hidden="true"></span>open</span></a
+                >
+              </figcaption>
+              <div class="patch-body" data-patch-body>
+                <svg class="patch-wires" aria-hidden="true" data-patch-wires></svg>
+
+                <div class="pnode" data-node="noise" style="--cat: #ffaa99">
+                  <div class="pnode-head">
+                    <span>noise</span><span class="pnode-tag">src</span><i class="sock sock-out"></i>
+                  </div>
+                  <div class="prow" data-param="scale" role="slider" tabindex="0" aria-label="noise scale">
+                    <span class="fill" style="left: 0; width: 4.8%"></span><span class="pname">scale</span
+                    ><span class="pval">2.4</span>
+                  </div>
+                  <div class="prow" data-param="offset" role="slider" tabindex="0" aria-label="noise offset">
+                    <span class="fill" style="left: 0; width: 4%"></span><span class="pname">offset</span
+                    ><span class="pval">0.08</span>
+                  </div>
+                  <canvas class="pview" width="256" height="144" data-preview="noise"></canvas>
+                </div>
+
+                <div class="pnode" data-node="kaleid" style="--cat: #ffee99">
+                  <div class="pnode-head">
+                    <i class="sock sock-in"></i><span>kaleid</span><span class="pnode-tag">geo</span
+                    ><i class="sock sock-out"></i>
+                  </div>
+                  <div class="prow" data-param="nSides" role="slider" tabindex="0" aria-label="kaleid sides">
+                    <span class="fill" style="left: 0; width: 17.4%"></span><span class="pname">nSides</span
+                    ><span class="pval">5</span>
+                  </div>
+                  <p class="pdoc"><span aria-hidden="true">// </span>mirror it around the centre</p>
+                </div>
+
+                <div class="pnode" data-node="color" style="--cat: #ccff99">
+                  <div class="pnode-head">
+                    <i class="sock sock-in"></i><span>color</span><span class="pnode-tag">col</span
+                    ><i class="sock sock-out"></i>
+                  </div>
+                  <div class="prow" data-param="r" role="slider" tabindex="0" aria-label="color red">
+                    <span class="fill" style="left: 0; width: 56%"></span><span class="pname">r</span
+                    ><span class="pval">0.56</span>
+                  </div>
+                  <div class="prow" data-param="g" role="slider" tabindex="0" aria-label="color green">
+                    <span class="fill" style="left: 0; width: 10%"></span><span class="pname">g</span
+                    ><span class="pval">0.1</span>
+                  </div>
+                  <div class="prow" data-param="b" role="slider" tabindex="0" aria-label="color blue">
+                    <span class="fill" style="left: 0; width: 100%"></span><span class="pname">b</span
+                    ><span class="pval">1</span>
+                  </div>
+                </div>
+
+                <div class="pnode" data-node="out" style="--cat: #aa99ff">
+                  <div class="pnode-head">
+                    <i class="sock sock-in"></i><span>out</span><span class="pnode-tag">out</span>
+                  </div>
+                  <div class="poptions" aria-hidden="true">
+                    <span class="on">o0</span><span>o1</span><span>o2</span><span>o3</span>
+                  </div>
+                  <p class="pdoc"><span aria-hidden="true">// </span>what plays behind this page</p>
+                </div>
+              </div>
+              <p class="patch-msg" data-patch-msg>
+                <span data-patch-note><span aria-hidden="true">// </span>drag a number sideways</span>
+              </p>
+              <noscript>
+                <p class="patch-msg"><span>// the visuals need JavaScript and WebGL</span></p>
+              </noscript>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section id="how" class="pane" aria-labelledby="how-title">
+        <div class="wrap">
+          <div class="sheet" style="--cat: #ffaa99">
+            <div class="sheet-head" aria-hidden="true">
+              <i class="sock sock-in"></i><span>how it works</span><span class="sheet-tag">src</span>
+            </div>
+            <div class="col pane-body">
+              <h2 class="h2" id="how-title">
+                <span class="pfx" aria-hidden="true">// </span>Boxes, wires and numbers
+              </h2>
+              <p class="lede">
+                <a href="https://hydra.ojack.xyz/">hydra</a> is a video synth by Olivia Jack that people play by
+                writing code. hydraflow lets you play it with your mouse instead. That's all there is to learn:
+              </p>
+
+              <ol class="steps grid">
+                <li class="step">
+                  <span class="step-num" aria-hidden="true">01</span>
+                  <h3 class="h3">Add a box</h3>
+                  <p>
+                    Press <kbd>Tab</kbd> or double-click anywhere, then pick one: <code>osc</code> for stripes,
+                    <code>noise</code> for clouds, <code>shape</code> for a circle. Each box is one hydra function.
+                  </p>
+                </li>
+                <li class="step">
+                  <span class="step-num" aria-hidden="true">02</span>
+                  <h3 class="h3">Wire it up</h3>
+                  <p>
+                    Drag from one box's square socket to the next. The picture flows along the wire, and every box
+                    on the way changes it: turns it, colours it, folds it into a kaleidoscope.
+                  </p>
+                </li>
+                <li class="step">
+                  <span class="step-num" aria-hidden="true">03</span>
+                  <h3 class="h3">Drag the numbers</h3>
+                  <p>
+                    Drag any number sideways and the visuals follow straight away. Hold <kbd>Shift</kbd> for small
+                    steps. Nothing breaks, and <kbd>Ctrl/⌘</kbd> + <kbd>Z</kbd> takes anything back.
+                  </p>
+                </li>
+              </ol>
+
+              <figure class="window">
+                <div class="window-bar" aria-hidden="true">hydraflow · /app</div>
+                <img
+                  src="/site/hydraflow-preview.jpg"
+                  width="2880"
+                  height="1620"
+                  loading="lazy"
+                  alt="The hydraflow editor: osc, kaleid, modulate, color and out boxes wired in a row, with noise wired into modulate, over the purple visuals they make"
+                />
+              </figure>
+
+              <dl class="keys grid" aria-label="Handy keys">
+                <div class="key">
+                  <dt><kbd>Tab</kbd> or double-click</dt>
+                  <dd>Add a box</dd>
+                </div>
+                <div class="key">
+                  <dt><kbd>Backspace</kbd></dt>
+                  <dd>Remove what's selected; the wire closes the gap</dd>
+                </div>
+                <div class="key">
+                  <dt><kbd>Ctrl/⌘</kbd> + <kbd>Z</kbd></dt>
+                  <dd>Undo (add <kbd>Shift</kbd> to redo)</dd>
+                </div>
+                <div class="key">
+                  <dt><kbd>Ctrl/⌘</kbd> + <kbd>`</kbd></dt>
+                  <dd>Hide the editor and let the visuals fill the screen; <kbd>Esc</kbd> brings it back</dd>
+                </div>
+              </dl>
+            </div>
+            <i class="sock sock-down" aria-hidden="true"></i>
+          </div>
+        </div>
+      </section>
+
+      <section id="play" class="pane" aria-labelledby="play-title">
+        <div class="wrap">
+          <div class="sheet" style="--cat: #99ffee">
+            <div class="sheet-head" aria-hidden="true">
+              <i class="sock sock-in"></i><span>things to try</span><span class="sheet-tag">mod</span>
+            </div>
+            <div class="col pane-body">
+              <div class="grid split">
+                <h2 class="h2" id="play-title"><span class="pfx" aria-hidden="true">// </span>Things to try</h2>
+                <p>
+                  Start from the patch that's already there, or clear it and build your own. Either way, here's
+                  what's in the box.
+                </p>
+              </div>
+
+              <ul class="features grid">
+                <li class="feature" style="--cat: #ffaa99">
+                  <span class="chip" aria-hidden="true">osc<i>src</i></span>
+                  <h3 class="h3">Every hydra function is a box</h3>
+                  <p>
+                    About fifty of them. Their names, numbers and defaults come straight from hydra, so what you
+                    pick up here works in hydra too.
+                  </p>
+                </li>
+                <li class="feature" style="--cat: #99ccff">
+                  <span class="chip" aria-hidden="true">cam<i>in</i></span>
+                  <h3 class="h3">Your camera, screen and files</h3>
+                  <p>
+                    Bring in your webcam, a shared window, a photo or a video, and run it through the same boxes.
+                    Drop a file on the canvas and it's in. Your files stay in your browser.
+                  </p>
+                </li>
+                <li class="feature" style="--cat: #ee99ff">
+                  <span class="chip" aria-hidden="true">lfo<i>ctl</i></span>
+                  <h3 class="h3">Make it move</h3>
+                  <p>
+                    Press <code>~</code> next to a number and it moves by itself: in steps, in waves, to the music
+                    or with your mouse. An <code>lfo</code> or <code>audio</code> box can drive several numbers at
+                    once.
+                  </p>
+                </li>
+                <li class="feature" style="--cat: #ffee99">
+                  <span class="chip" aria-hidden="true">preview<i>geo</i></span>
+                  <h3 class="h3">Peek inside any box</h3>
+                  <p>
+                    Turn on a box's preview to see the picture at that point in the chain. It's the quickest way to
+                    find out what a box does.
+                  </p>
+                </li>
+                <li class="feature" style="--cat: #99ffaa">
+                  <span class="chip" aria-hidden="true">share<i>mix</i></span>
+                  <h3 class="h3">Share it as a link</h3>
+                  <p>
+                    The whole patch fits in a link. Whoever opens it gets your patch, ready to change. It travels in
+                    the link itself, so no server ever sees it.
+                  </p>
+                </li>
+                <li class="feature" style="--cat: #aa99ff">
+                  <span class="chip" aria-hidden="true">perform<i>out</i></span>
+                  <h3 class="h3">Play it full screen</h3>
+                  <p>
+                    Hide the editor and the visuals fill the screen, for a projector, a stream or a recording. Your
+                    patch is saved as you go, so it's still there tomorrow.
+                  </p>
+                </li>
+              </ul>
+            </div>
+            <i class="sock sock-down" aria-hidden="true"></i>
+          </div>
+        </div>
+      </section>
+
+      <section id="code" class="pane" aria-labelledby="code-title">
+        <div class="wrap">
+          <div class="sheet" style="--cat: #ccff99">
+            <div class="sheet-head" aria-hidden="true">
+              <i class="sock sock-in"></i><span>the code</span><span class="sheet-tag">col</span>
+            </div>
+            <div class="col pane-body grid peek">
+              <div class="peek-text">
+                <h2 class="h2" id="code-title">
+                  <span class="pfx" aria-hidden="true">// </span>The code was there all along
+                </h2>
+                <p class="lede">
+                  Every patch is also a hydra sketch. Press <code>code</code> in the editor and there it is, one
+                  line per box, changing as you drag.
+                </p>
+                <p class="peek-more">
+                  You never have to read it. But when you get curious, it's the gentlest way into hydra: you
+                  already know what each line does, because you built it.
+                </p>
+              </div>
+              <figure class="sketch">
+                <figcaption class="sketch-head">
+                  <span>patch.js</span><span class="sketch-ro">read only</span>
+                </figcaption>
+                <pre class="sketch-code" data-sketch><span class="cb">noise(<span class="tn">2.4</span>, <span class="tn">0.08</span>)</span>
+<span class="cb">  .kaleid(<span class="tn">5</span>)</span>
+<span class="cb">  .color(<span class="tn">0.56</span>, <span class="tn">0.1</span>)</span>
+<span class="cb">  .out(o0)</span></pre>
+                <p class="cmt">
+                  <span aria-hidden="true">// </span>The patch behind this page, as hydra code. Drag a number in
+                  the boxes up top and watch this change.
+                </p>
+              </figure>
+
+              <div class="sibling">
+                <span class="sibling-mark" aria-hidden="true"></span>
+                <div>
+                  <h3 class="h3">Ready for more?</h3>
+                  <p>
+                    Copy the code into <a href="https://hydra.ojack.xyz/">hydra's own editor</a>, or into
+                    <a href="https://hydractrl.d17e.dev/">HYDRACTRL</a>, hydraflow's big sibling for playing hydra
+                    live: saved scenes, MIDI, a proper code editor and a desktop app for VJ software.
+                  </p>
+                </div>
+                <a class="btn btn-line btn-sm" href="https://hydractrl.d17e.dev/"
+                  ><span class="lbl">Meet HYDRACTRL</span><span class="arrow" aria-hidden="true">-&gt;</span></a
+                >
+              </div>
+            </div>
+            <i class="sock sock-down" aria-hidden="true"></i>
+          </div>
+        </div>
+      </section>
+
+      <section id="learn" class="pane" aria-label="Learn hydra, and credits">
+        <div class="wrap">
+          <div class="sheet" style="--cat: #99ccff">
+            <div class="sheet-head" aria-hidden="true">
+              <i class="sock sock-in"></i><span>learn more</span><span class="sheet-tag">in</span>
+            </div>
+            <div class="col pane-body grid readme">
+              <div>
+                <h2 class="h2"><span class="pfx pfx-short" aria-hidden="true"># </span>New to hydra?</h2>
+                <ul class="md-list">
+                  <li>
+                    <a href="https://hydra.ojack.xyz/docs/">hydra documentation</a>
+                    <span class="fine">The official guide, gentle from the first page.</span>
+                  </li>
+                  <li>
+                    <a href="https://hydra.ojack.xyz/functions/">Function reference</a>
+                    <span class="fine">Every hydra function, so every box, with examples.</span>
+                  </li>
+                  <li>
+                    <a href="https://hydra.ojack.xyz/garden/">hydra internet garden</a>
+                    <span class="fine">What the community makes, and how.</span>
+                  </li>
+                  <li>
+                    <a href="https://hydra-book.glitch.me/">hydra book</a>
+                    <span class="fine">A thorough guide by <a href="https://naotohieda.com/">Naoto Hieda</a>.</span>
+                  </li>
+                </ul>
+              </div>
+              <div>
+                <h2 class="h2"><span class="pfx pfx-short" aria-hidden="true"># </span>Built with</h2>
+                <ul class="md-list">
+                  <li><a href="https://hydra.ojack.xyz/">hydra</a> by <a href="https://ojack.xyz/">Olivia Jack</a></li>
+                  <li>
+                    <a href="https://svelteflow.dev/">Svelte Flow</a> for the boxes and wires, in
+                    <a href="https://svelte.dev/">Svelte</a>
+                  </li>
+                  <li><a href="https://vite.dev/">Vite</a> and <a href="https://bun.sh/">Bun</a></li>
+                  <li>
+                    <a href="https://github.com/evilmartians/mono">Martian Mono</a> by Evil Martians and
+                    <a href="https://github.com/tonsky/FiraCode">Fira Code</a> by Nikita Prokopov
+                  </li>
+                </ul>
+              </div>
+            </div>
+            <i class="sock sock-down" aria-hidden="true"></i>
+          </div>
+        </div>
+      </section>
+
+      <section id="hi" class="pane" aria-labelledby="hi-title">
+        <div class="wrap">
+          <div class="sheet" style="--cat: #ee99ff">
+            <div class="sheet-head" aria-hidden="true">
+              <i class="sock sock-in"></i><span>say hi</span><span class="sheet-tag">ctl</span>
+            </div>
+            <div class="col pane-body grid contact">
+              <div class="contact-intro">
+                <h2 class="h2" id="hi-title">Say hi</h2>
+                <p class="lede">
+                  Hi, I'm <a href="https://www.d17e.dev">David</a>, a software engineer and artist living in
+                  Amsterdam. I made hydraflow so more people get to play with hydra, including the ones who'd
+                  rather not start with code.
+                </p>
+              </div>
+              <div class="contact-links">
+                <p>Made something? Press <code>share</code> and send me the link. Stuck, or found a bug? Tell me.</p>
+                <ul class="md-list">
+                  <li><a href="https://tally.so/r/3Erq04?source=hydraflow">Write me a message</a></li>
+                  <li><a href="https://github.com/dxviie/hydraflow/issues">Open an issue on GitHub</a></li>
+                </ul>
+                <p class="cmt sig"><span aria-hidden="true">// </span>David, <a href="https://www.d17e.dev">D17E</a></p>
+              </div>
+            </div>
+            <i class="sock sock-down" aria-hidden="true"></i>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <div class="wrap">
+        <div class="sheet foot-sheet" style="--cat: #aa99ff">
+          <div class="sheet-head" aria-hidden="true">
+            <i class="sock sock-in"></i><span>out</span><span class="sheet-tag">out</span>
+          </div>
+          <div class="col foot-body">
+            <p>
+              hydraflow is made by <a href="https://www.d17e.dev">D17E</a> on top of
+              <a href="https://hydra.ojack.xyz/">hydra</a> by <a href="https://ojack.xyz/">Olivia Jack</a>.
+              <a href="https://github.com/dxviie/hydraflow/blob/main/LICENSE">GNU AGPL v3</a>.
+            </p>
+            <nav aria-label="Project links">
+              <a class="foot-link" href="/app">Open the editor</a>
+              <a class="foot-link" href="https://github.com/dxviie/hydraflow">GitHub</a>
+              <a class="foot-link" href="https://hydractrl.d17e.dev/">HYDRACTRL</a>
+            </nav>
+          </div>
+        </div>
+      </div>
+    </footer>
+
+    <div class="status" data-status hidden>
+      <div class="wrap status-inner">
+        <button
+          type="button"
+          class="status-mode"
+          data-backdrop-toggle
+          aria-pressed="false"
+          aria-label="Live, pause the background"
+          data-state="playing"
+        >
+          <span class="when-playing">Live</span><span class="when-paused">Paused</span>
+        </button>
+        <span class="status-file">this page<span data-modified hidden> [+]</span></span>
+        <span class="status-count">4 nodes</span>
+        <a class="status-open" href="/app" data-patch-open aria-label="Open the patch behind this page in the editor"
+          ><span class="lc">Open</span><span class="status-long">&nbsp;in hydraflow</span
+          ><span aria-hidden="true">&nbsp;-&gt;</span></a
+        >
+      </div>
+    </div>
   </body>
 </html>

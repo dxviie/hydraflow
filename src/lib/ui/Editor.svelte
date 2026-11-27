@@ -9,7 +9,7 @@
     SvelteFlow,
     useSvelteFlow,
   } from "@xyflow/svelte";
-  import { onMount, setContext, untrack } from "svelte";
+  import { onMount, setContext, tick, untrack } from "svelte";
 
   import {
     type FlowEdge,
@@ -498,6 +498,18 @@
   function show(patch: SavedPatch) {
     ({ nodes, edges } = fromSaved(patch));
     shown = patch.shown;
+    fit();
+  }
+
+  /**
+   * Frame the patch once Svelte Flow has measured its new nodes: framed any
+   * sooner, a patch opened from a link is framed around its first node only
+   */
+  async function fit() {
+    await tick();
+    for (let frame = 0; frame < 60 && !nodes.every((node) => node.measured?.width); frame++) {
+      await new Promise(requestAnimationFrame);
+    }
     flow.fitView({ padding: 0.3, maxZoom: 1 });
   }
 
@@ -589,7 +601,7 @@
     const fresh = starterPatch();
     ({ nodes, edges } = fromSaved(fresh));
     shown = fresh.shown;
-    flow.fitView({ padding: 0.3, maxZoom: 1 });
+    fit();
   }
 
   function onkeydown(event: KeyboardEvent) {

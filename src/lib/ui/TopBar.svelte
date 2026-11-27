@@ -12,7 +12,7 @@
 </script>
 
 <header>
-  <div class="brand">hydraflow</div>
+  <div class="brand"><span class="mark" aria-hidden="true"></span>hydraflow</div>
   <nav aria-label="Patch">
     <div class="group">
       <button onclick={onadd} title="add a node (Tab)">add node <kbd>tab</kbd></button>
@@ -48,10 +48,19 @@
   .brand {
     display: flex;
     align-items: center;
-    padding: 0 14px;
+    gap: 8px;
+    padding: 0 14px 0 8px;
     background: var(--box);
     font: 800 16px / 1 var(--display);
     font-stretch: 112.5%;
+  }
+
+  .mark {
+    width: 28px;
+    height: 28px;
+    background: currentColor;
+    -webkit-mask: url("/logo.svg") center / contain no-repeat;
+    mask: url("/logo.svg") center / contain no-repeat;
   }
 
   nav,
