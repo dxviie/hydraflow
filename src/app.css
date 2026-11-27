@@ -1,0 +1,177 @@
+/* Two families, self-hosted (see /fonts/LICENSE.txt), as on the HYDRACTRL site */
+@font-face {
+  font-family: "Martian Mono";
+  src: url("/fonts/martian-mono-latin-standard-normal.woff2") format("woff2");
+  font-weight: 100 800;
+  font-stretch: 75% 112.5%;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Fira Code";
+  src: url("/fonts/fira-code-latin-wght-normal.woff2") format("woff2");
+  font-weight: 300 700;
+  font-display: swap;
+}
+
+/* ── Tokens: the HYDRACTRL site's, with what a patch needs ── */
+
+:root {
+  color-scheme: dark;
+  --bg: #050505;
+  /* Text and nodes sit on the visuals in boxes of near black */
+  --box: rgba(0, 0, 0, 0.86);
+  --glass: rgba(6, 5, 9, 0.86);
+  --text: #f3f3ef;
+  --soft: #b9b8b0;
+  --dim: #908f88;
+  --rule: rgba(243, 243, 239, 0.12);
+  --select: #9000ff;
+  --select-fill: rgba(144, 0, 255, 0.3);
+  --run: #0cf590;
+  --num: #c3a2ff;
+  --violet-line: rgba(195, 162, 255, 0.24);
+  --violet-edge: rgba(195, 162, 255, 0.4);
+
+  --display: "Martian Mono", ui-monospace, Menlo, Consolas, monospace;
+  --code: "Fira Code", ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+
+  --top-h: 40px;
+  --status-h: 32px;
+  --row-h: 26px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font: 400 12px / 1 var(--code);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+::selection {
+  background: var(--select);
+  color: #fff;
+}
+
+:focus-visible {
+  outline: 2px solid var(--run);
+  outline-offset: 1px;
+}
+
+/* ── Svelte Flow, in the same clothes ───────────────────── */
+
+.svelte-flow {
+  --xy-background-color: transparent;
+  --xy-edge-stroke: var(--text);
+  --xy-edge-stroke-width: 1.5;
+  --xy-edge-stroke-selected: var(--num);
+  --xy-connectionline-stroke: var(--run);
+  --xy-connectionline-stroke-width: 1.5;
+  --xy-handle-background-color: var(--text);
+  --xy-handle-border-color: var(--text);
+  --xy-selection-background-color: rgba(144, 0, 255, 0.14);
+  --xy-selection-border: 1px solid var(--select);
+  --xy-attribution-background-color: var(--box);
+  --xy-controls-button-background-color: var(--box);
+  --xy-controls-button-background-color-hover: var(--text);
+  --xy-controls-button-color: var(--text);
+  --xy-controls-button-color-hover: #000;
+  --xy-controls-button-border-color: transparent;
+  --xy-controls-box-shadow: none;
+  font: inherit;
+}
+
+.svelte-flow__edge.selected .svelte-flow__edge-path {
+  stroke-width: 2.5;
+}
+
+/* Square sockets, with more to grab than to see */
+.svelte-flow__handle {
+  width: 8px;
+  height: 8px;
+  min-width: 0;
+  min-height: 0;
+  border-radius: 0;
+}
+
+.svelte-flow__handle::after {
+  content: "";
+  position: absolute;
+  inset: -7px;
+}
+
+/* A number travels on a dashed violet wire, between round sockets */
+.svelte-flow__handle.value {
+  border-radius: 50%;
+  background: var(--num);
+  border-color: var(--num);
+}
+
+.svelte-flow__edge.value .svelte-flow__edge-path {
+  stroke: var(--num);
+  stroke-width: 1.25;
+  stroke-dasharray: 3 4;
+}
+
+.svelte-flow__edge.value.selected .svelte-flow__edge-path {
+  stroke-width: 2.5;
+  stroke-dasharray: none;
+}
+
+.svelte-flow__handle.connectingto,
+.svelte-flow__handle.valid {
+  background: var(--run);
+  border-color: var(--run);
+}
+
+/* Above the status line; the attribution stays, left of the zoom buttons */
+.svelte-flow__controls {
+  margin: 0 24px calc(var(--status-h) + 20px) 0;
+  gap: 1px;
+}
+
+.svelte-flow__controls-button {
+  width: 28px;
+  height: 28px;
+  border-bottom: 0;
+}
+
+.svelte-flow__panel.svelte-flow__attribution {
+  margin: 0 64px calc(var(--status-h) + 20px) 0;
+  padding: 3px 5px;
+}
+
+.svelte-flow__attribution a {
+  color: var(--dim);
+}
