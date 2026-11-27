@@ -1,0 +1,30 @@
+{
+  "name": "hydraflow",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "description": "A node-based visual editor for the hydra video synth",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "lint": "biome check src/",
+    "format": "biome format --write src/",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@xyflow/svelte": "^2.0.3",
+    "hydra-synth": "^1.4.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.9",
+    "@sveltejs/vite-plugin-svelte": "^7.3.2",
+    "@types/bun": "^1.4.5",
+    "svelte": "^5.59.2",
+    "svelte-check": "^4.7.8",
+    "typescript": "~6",
+    "vite": "^8.4.0"
+  }
+}
