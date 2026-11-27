@@ -32,11 +32,13 @@
   } from "../graph/edit";
   import { History } from "../graph/history";
   import { parsePatch, type SavedPatch, starterPatch } from "../graph/storage";
-  import type { InputName, PatchEdge } from "../graph/types";
-  import { getDef, type NodeDef } from "../hydra/catalog";
-  import { Engine } from "../hydra/engine";
+  import type { InputName, MediaRef, PatchEdge } from "../graph/types";
+  import { getDef, MAX_SOURCES, type NodeDef } from "../hydra/catalog";
+  import { Engine, type SourceStatus } from "../hydra/engine";
+  import { loadMedia, mediaKind, pruneMedia, saveMedia } from "../media";
+  import { decodePatch, encodePatch, linkedPatch, shareUrl } from "../share";
   import CodePane from "./CodePane.svelte";
-  import { ENGINE, type EngineContext } from "./context";
+  import { EDITOR, type EditorContext } from "./context";
   import HydraNode from "./HydraNode.svelte";
   import Palette from "./Palette.svelte";
   import StatusBar from "./StatusBar.svelte";
@@ -56,7 +58,15 @@
     onEdge?: PatchEdge;
   }
 
+  /** Something to tell the person, in the status line, with at most one thing to do about it */
+  interface Notice {
+    text: string;
+    action?: { label: string; run: () => void };
+  }
+
   const STORAGE_KEY = "hydraflow.patch";
+  /** The person's own patch, set aside while they look at one from a link */
+  const MINE_KEY = "hydraflow.patch.mine";
   const NODE_WIDTH = 216;
   /** The space between two nodes of a chain */
   const GAP = 74;
@@ -64,16 +74,24 @@
 
   const nodeTypes = { hydra: HydraNode };
 
-  function load(): SavedPatch {
+  function stored(key: string): SavedPatch | undefined {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      const patch = stored ? parsePatch(JSON.parse(stored)) : undefined;
-      if (patch && patch.nodes.length > 0) return patch;
+      const text = localStorage.getItem(key);
+      return text ? parsePatch(JSON.parse(text)) : undefined;
     } catch {
-      // Unreadable or blocked storage: start from the starter patch
+      // Unreadable or blocked storage
+      return undefined;
     }
-    return starterPatch();
   }
+
+  function load(): SavedPatch {
+    const patch = stored(STORAGE_KEY);
+    return patch && patch.nodes.length > 0 ? patch : starterPatch();
+  }
+
+  /** The files a patch names */
+  const mediaOf = (patch: SavedPatch | undefined) =>
+    (patch?.nodes ?? []).flatMap((node) => (node.media ? [node.media.id] : []));
 
   const initial = load();
   const start = fromSaved(initial);
@@ -88,21 +106,22 @@
   let size = $state({ width: 0, height: 0 });
   let palette = $state.raw<PaletteRequest | null>(null);
   let failure = $state("");
+  let notice = $state.raw<Notice | null>(null);
+  let statuses = $state<Record<string, SourceStatus>>({});
 
   let canvas: HTMLCanvasElement;
   let engine = $state.raw<Engine>();
   const pointer = { x: 0, y: 0, onPane: false };
 
-  setContext<EngineContext>(ENGINE, {
-    get current() {
-      return engine;
-    },
-  });
-
   const flow = useSvelteFlow<FlowNode, FlowEdge>();
   const history = new History<string>();
 
   const snapshot = () => JSON.stringify(toSaved(nodes, edges, shown));
+  const deselected = (node: FlowNode) => (node.selected ? { ...node, selected: false } : node);
+
+  /** The starter patch as it saves: a patch nobody has touched yet */
+  const untouched = fromSaved(starterPatch());
+  const pristine = JSON.stringify(toSaved(untouched.nodes, untouched.edges, 0));
 
   const patch = $derived(toPatch(nodes, edges));
   const structure = $derived(signature(patch));
@@ -110,6 +129,33 @@
   const wired = $derived(
     nodes.filter((node) => node.data.fn === "out").map((node) => node.data.option ?? 0),
   );
+  // hydra has four inputs: the input nodes after the fourth have nothing to play on
+  const crowded = $derived(
+    new Set(
+      nodes
+        .filter((node) => getDef(node.data.fn)?.source)
+        .slice(MAX_SOURCES)
+        .map((node) => node.id),
+    ),
+  );
+
+  setContext<EditorContext>(EDITOR, {
+    get engine() {
+      return engine;
+    },
+    status: (nodeId) => statuses[nodeId],
+    crowded: (nodeId) => crowded.has(nodeId),
+    attach,
+  });
+
+  let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /** Say something in the status line. Without something to do, it goes away by itself. */
+  function tell(text: string, action?: Notice["action"]) {
+    clearTimeout(noticeTimer);
+    notice = { text, action };
+    if (!action) noticeTimer = setTimeout(() => (notice = null), 4000);
+  }
 
   // Values go to hydra on every change; shaders are only rebuilt when the wiring changes
   $effect(() => {
@@ -154,7 +200,13 @@
 
     let created: Engine;
     try {
-      created = new Engine(canvas);
+      created = new Engine(canvas, {
+        loadMedia,
+        onstatus: (nodeId, status) => {
+          if (status) statuses[nodeId] = status;
+          else delete statuses[nodeId];
+        },
+      });
     } catch (error) {
       failure = "hydra needs WebGL, and this browser didn't give it one.";
       console.error(error);
@@ -318,12 +370,150 @@
       next = connect(next, { source: node.id, target, input });
     }
 
-    nodes = [
-      ...others.map((other) => (other.selected ? { ...other, selected: false } : other)),
-      { ...node, position, selected: true },
-    ];
+    nodes = [...others.map(deselected), { ...node, position, selected: true }];
     edges = next.map(toFlowEdge);
   }
+
+  /** Keep a picture or video in this browser; the patch gets its name */
+  async function keep(file: File): Promise<MediaRef | undefined> {
+    try {
+      return await saveMedia(file);
+    } catch (error) {
+      console.warn("could not keep the file", error);
+      tell("this browser wouldn't keep that file");
+      return undefined;
+    }
+  }
+
+  function attach(nodeId: string, file: File) {
+    const node = nodes.find((candidate) => candidate.id === nodeId);
+    const wanted = node && getDef(node.data.fn)?.source;
+    if (!wanted || mediaKind(file) !== wanted) {
+      tell(wanted === "video" ? "that isn't a video" : "that isn't a picture");
+      return;
+    }
+    keep(file).then((media) => media && flow.updateNodeData(nodeId, { media }));
+  }
+
+  const carriesFiles = (event: DragEvent) => event.dataTransfer?.types.includes("Files") ?? false;
+
+  function ondragover(event: DragEvent) {
+    if (!carriesFiles(event) || !event.dataTransfer) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  }
+
+  // A picture or video dropped on the canvas becomes a node; dropped on a node of its kind, that node's file
+  async function ondrop(event: DragEvent) {
+    if (!carriesFiles(event)) return;
+    event.preventDefault();
+    const files = [...(event.dataTransfer?.files ?? [])];
+    const over = (event.target as HTMLElement | null)?.closest<HTMLElement>(".svelte-flow__node");
+    const target = nodes.find((node) => node.id === over?.dataset.id);
+    const at = flow.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+    let placed = 0;
+    for (const file of files) {
+      const kind = mediaKind(file);
+      const def = kind && getDef(kind);
+      if (!def) {
+        tell("only pictures and videos can be dropped here");
+      } else if (files.length === 1 && target && getDef(target.data.fn)?.source === kind) {
+        attach(target.id, file);
+      } else {
+        const media = await keep(file);
+        if (!media) continue;
+        const node = newNode(def, { x: at.x + placed * 32, y: at.y + placed * 32 });
+        nodes = [
+          ...nodes.map(deselected),
+          { ...node, data: { ...node.data, media }, selected: true },
+        ];
+        placed++;
+      }
+    }
+  }
+
+  async function share() {
+    const url = shareUrl(window.location.href, await encodePatch(toSaved(nodes, edges, shown)));
+    const files = nodes.some((node) => node.data.media);
+    try {
+      await navigator.clipboard.writeText(url);
+      tell(files ? "link copied · your files stay in this browser" : "link copied");
+    } catch {
+      // No clipboard here: the address bar can carry it
+      window.history.replaceState(null, "", url);
+      tell("the link is in the address bar");
+    }
+  }
+
+  function show(patch: SavedPatch) {
+    ({ nodes, edges } = fromSaved(patch));
+    shown = patch.shown;
+    flow.fitView({ padding: 0.3, maxZoom: 1 });
+  }
+
+  const mineKept = () =>
+    tell("this patch came from a link · yours is kept", {
+      label: "bring mine back",
+      run: bringMineBack,
+    });
+
+  /** The address carries a patch: show it, and keep the person's own to come back to */
+  async function openLink() {
+    const encoded = linkedPatch(window.location.hash);
+    if (encoded === undefined) return;
+    // Back to the plain address, so a reload doesn't open the link over later work
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    const linked = await decodePatch(encoded);
+    if (!linked || linked.nodes.length === 0) {
+      tell("that link doesn't hold a patch");
+      return;
+    }
+    const mine = snapshot();
+    const incoming = fromSaved(linked);
+    if (JSON.stringify(toSaved(incoming.nodes, incoming.edges, linked.shown)) === mine) return;
+    history.record(mine);
+    show(linked);
+    if (mine === pristine) {
+      tell("opened a patch from a link");
+      return;
+    }
+    try {
+      // A second link doesn't replace what was set aside at the first
+      if (!localStorage.getItem(MINE_KEY)) localStorage.setItem(MINE_KEY, mine);
+    } catch {
+      // No storage: undo still goes back to it
+    }
+    mineKept();
+  }
+
+  function bringMineBack() {
+    const mine = stored(MINE_KEY);
+    if (mine) show(mine);
+    forgetMine();
+  }
+
+  /** The patch that is open is the one to keep: let go of the one set aside */
+  function forgetMine() {
+    notice = null;
+    try {
+      localStorage.removeItem(MINE_KEY);
+    } catch {
+      // Nothing was kept
+    }
+  }
+
+  function dismiss() {
+    if (notice?.action) forgetMine();
+    notice = null;
+  }
+
+  onMount(() => {
+    pruneMedia(new Set([...mediaOf(initial), ...mediaOf(stored(MINE_KEY))])).catch(() => {});
+    if (stored(MINE_KEY)) mineKept();
+    openLink();
+    window.addEventListener("hashchange", openLink);
+    return () => window.removeEventListener("hashchange", openLink);
+  });
 
   function restore(saved: string) {
     const restored = parsePatch(JSON.parse(saved));
@@ -389,7 +579,7 @@
 <canvas bind:this={canvas} class="output" aria-label="What the patch draws"></canvas>
 <div class="scrim" class:off={performing}></div>
 
-<div class="patch" class:hidden={performing}>
+<div class="patch" class:hidden={performing} role="presentation" {ondragover} {ondrop}>
   <SvelteFlow
     bind:nodes
     bind:edges
@@ -421,6 +611,7 @@
     {codeShown}
     onadd={() => openPalette(false)}
     oncode={() => (codeShown = !codeShown)}
+    onshare={share}
     onreset={reset}
     onperform={() => (performing = true)}
   />
@@ -433,6 +624,8 @@
     {shown}
     {wired}
     {fps}
+    {notice}
+    ondismiss={dismiss}
     width={size.width}
     height={size.height}
     onpause={() => (paused = !paused)}

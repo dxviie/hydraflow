@@ -68,6 +68,26 @@ describe("parsePatch", () => {
     });
   });
 
+  test("keeps the name of a file, only on nodes that play one", () => {
+    const patch = reparse({
+      v: 1,
+      nodes: [
+        { id: "a", fn: "image", media: { id: "m1", name: "photo.png", blob: "data:..." } },
+        { id: "b", fn: "video", media: { id: "", name: "clip.mp4" } },
+        { id: "c", fn: "image", media: "photo.png" },
+        { id: "d", fn: "osc", media: { id: "m1", name: "photo.png" } },
+        { id: "e", fn: "image", media: { id: "m2", name: "n".repeat(500) } },
+      ],
+    });
+    expect(patch?.nodes.map((node) => node.media)).toEqual([
+      { id: "m1", name: "photo.png" },
+      undefined,
+      undefined,
+      undefined,
+      { id: "m2", name: "n".repeat(200) },
+    ]);
+  });
+
   test("drops wires that close a loop, go nowhere, or come out of an out", () => {
     const patch = reparse({
       v: 1,

@@ -132,6 +132,54 @@ describe("toCode", () => {
   });
 });
 
+describe("inputs", () => {
+  const inputs: Patch = {
+    nodes: [
+      node("screen", "screen"),
+      { ...node("pic", "image"), media: { id: "m1", name: 'my "pic".png' } },
+      node("clip", "video"),
+      node("cam", "cam", {}, 2),
+      { ...node("fifth", "image"), media: { id: "m2", name: "late.png" } },
+      node("o", "out"),
+    ],
+    edges: [{ source: "fifth", target: "o", input: "in" }],
+  };
+
+  test("each takes one of hydra's four inputs, in patch order", () => {
+    expect(compile(inputs).sources).toEqual([
+      { nodeId: "screen", kind: "screen", slot: 0, device: 0 },
+      { nodeId: "pic", kind: "image", slot: 1, device: 0, media: inputs.nodes[1].media },
+      { nodeId: "clip", kind: "video", slot: 2, device: 0 },
+      { nodeId: "cam", kind: "cam", slot: 3, device: 2 },
+    ]);
+  });
+
+  test("a fifth draws nothing: hydra has no input left for it", () => {
+    const compiled = compile(inputs);
+    expect(compiled.exprOf("fifth")).toEqual({ kind: "empty" });
+    expect(compiled.exprOf("cam")).toEqual({ kind: "buffer", name: "s3" });
+  });
+
+  test("start in code the way hydra starts them, files by their name in a media folder", () => {
+    expect(toCode(compile(inputs))).toBe(
+      [
+        "s0.initScreen()",
+        's1.initImage("/media/my \\"pic\\".png")',
+        "s3.initCam(2)",
+        "",
+        "solid(0, 0, 0, 0)",
+        "  .out(o0)",
+      ].join("\n"),
+    );
+  });
+
+  test("picking another file is a change hydra has to hear about", () => {
+    const other = structuredClone(inputs);
+    other.nodes[1].media = { id: "m9", name: 'my "pic".png' };
+    expect(signature(other)).not.toBe(signature(inputs));
+  });
+});
+
 describe("compile", () => {
   test("a loop draws nothing instead of recursing forever", () => {
     const patch: Patch = {

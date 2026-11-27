@@ -8,10 +8,11 @@
  */
 import Hydra from "hydra-synth";
 
-import { buildChain, type Chain, type Compiled, type Expr } from "../graph/compile";
+import { buildChain, type Chain, type Compiled, type Expr, type Source } from "../graph/compile";
 import { type Env, evalParam } from "../graph/params";
 import type { ParamState, PatchNode } from "../graph/types";
 import { MAX_SOURCES } from "./catalog";
+import { type OpenInput, openCamera, openImage, openScreen, openVideo } from "./inputs";
 
 export const PREVIEW_WIDTH = 256;
 export const PREVIEW_HEIGHT = 144;
@@ -20,6 +21,32 @@ const OUTPUTS = 4;
 /** Previews are for reading a patch, not for watching: a few times a second is enough */
 const PREVIEW_INTERVAL = 80;
 const PREVIEWS_PER_PASS = 6;
+
+/**
+ * Where an input node stands: nothing to play yet (no file chosen, no screen
+ * picked), opening, playing, a file this browser doesn't have, or failed.
+ */
+export type SourceStatus = "idle" | "loading" | "live" | "missing" | "error";
+
+export interface EngineOptions {
+  /** The file behind a picture or video node, if this browser has it */
+  loadMedia: (id: string) => Promise<Blob | undefined>;
+  onstatus: (nodeId: string, status: SourceStatus | undefined) => void;
+}
+
+/** What an input node holds open, whichever of hydra's inputs it plays on */
+interface Held {
+  key: string;
+  slot: number;
+  input?: OpenInput;
+}
+
+/** What makes two sources the same thing to open */
+function keyOf(source: Source): string {
+  if (source.kind === "cam") return `cam:${source.device}`;
+  if (source.kind === "screen") return "screen";
+  return `${source.kind}:${source.media?.id ?? ""}`;
+}
 
 interface Preview {
   context: CanvasRenderingContext2D;
@@ -40,7 +67,8 @@ export class Engine {
   private previewQueue: string[] = [];
   private previewTarget: Chain;
   private blank: Chain;
-  private cameraDevices: (number | undefined)[] = [];
+  private held = new Map<string, Held>();
+  private bound: (OpenInput | undefined)[] = [];
   private env: Env;
   private frame = 0;
   private last = 0;
@@ -48,7 +76,10 @@ export class Engine {
   private frames = 0;
   private fpsSince = 0;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    private options: EngineOptions,
+  ) {
     this.hydra = new Hydra({
       canvas,
       width: canvas.width,
@@ -89,6 +120,7 @@ export class Engine {
 
   stop() {
     cancelAnimationFrame(this.frame);
+    for (const nodeId of [...this.held.keys()]) this.release(nodeId);
   }
 
   resize(width: number, height: number) {
@@ -109,7 +141,7 @@ export class Engine {
   /** New wiring: build hydra's chains again, and the previews with them */
   apply(compiled: Compiled) {
     this.compiled = compiled;
-    this.applyCameras(compiled);
+    this.applySources(compiled.sources);
     for (let buffer = 0; buffer < OUTPUTS; buffer++) {
       const output = compiled.outputs.findLast((candidate) => candidate.buffer === buffer);
       this.chainOf(output?.expr ?? { kind: "empty" }).out(this.synth[`o${buffer}`]);
@@ -145,14 +177,114 @@ export class Engine {
     this.hydra._initAudio();
   }
 
-  private applyCameras(compiled: Compiled) {
-    for (let source = 0; source < MAX_SOURCES; source++) {
-      const device = compiled.cameras.find((camera) => camera.source === source)?.device;
-      if (device === this.cameraDevices[source]) continue;
-      this.cameraDevices[source] = device;
-      const input = this.synth[`s${source}`];
-      if (device === undefined) input.clear();
-      else input.initCam(device);
+  /** A screen is only shared when asked: call this from the click that asks */
+  startScreen(nodeId: string) {
+    const held = this.held.get(nodeId);
+    if (held?.key === "screen" && !held.input) this.open(nodeId, held.key, openScreen());
+  }
+
+  /** Let go of what a node plays, and leave the node ready to start again */
+  stopSource(nodeId: string) {
+    const held = this.held.get(nodeId);
+    if (!held?.input) return;
+    held.input.close();
+    held.input = undefined;
+    this.options.onstatus(nodeId, "idle");
+    this.bindInputs();
+  }
+
+  /**
+   * Cameras, screens and files belong to their node, not to the hydra input
+   * they happen to play on: when another node goes and the inputs shift, a
+   * camera keeps running and a shared screen stays shared.
+   */
+  private applySources(sources: Source[]) {
+    const wanted = new Map(sources.map((source) => [source.nodeId, source]));
+    for (const [nodeId, held] of this.held) {
+      const source = wanted.get(nodeId);
+      if (!source || keyOf(source) !== held.key) this.release(nodeId);
+    }
+    for (const source of sources) {
+      const held = this.held.get(source.nodeId);
+      if (held) held.slot = source.slot;
+      else this.hold(source);
+    }
+    this.bindInputs();
+  }
+
+  private hold(source: Source) {
+    const { nodeId, media } = source;
+    const key = keyOf(source);
+    this.held.set(nodeId, { key, slot: source.slot });
+    if (source.kind === "cam") {
+      this.open(nodeId, key, openCamera(source.device));
+    } else if (source.kind === "screen" || !media) {
+      this.options.onstatus(nodeId, "idle");
+    } else {
+      const open = source.kind === "image" ? openImage : openVideo;
+      const opening = this.options.loadMedia(media.id).then((file) => file && open(file));
+      this.open(nodeId, key, opening);
+    }
+  }
+
+  /** Follow something being opened, unless its node has moved on meanwhile */
+  private open(nodeId: string, key: string, opening: Promise<OpenInput | undefined>) {
+    this.options.onstatus(nodeId, "loading");
+    const current = () => {
+      const held = this.held.get(nodeId);
+      return held?.key === key && !held.input ? held : undefined;
+    };
+    opening.then(
+      (input) => {
+        const held = current();
+        if (!held || !input) {
+          input?.close();
+          if (held) this.options.onstatus(nodeId, "missing");
+          return;
+        }
+        held.input = input;
+        input.onended = () => this.stopSource(nodeId);
+        this.options.onstatus(nodeId, "live");
+        this.bindInputs();
+      },
+      (error) => {
+        if (!current()) return;
+        console.warn("could not open the input", error);
+        // Closing the browser's screen picker is a choice, not a failure
+        const dismissed = key === "screen" && (error as Error)?.name === "NotAllowedError";
+        this.options.onstatus(nodeId, dismissed ? "idle" : "error");
+      },
+    );
+  }
+
+  private release(nodeId: string) {
+    this.held.get(nodeId)?.input?.close();
+    this.held.delete(nodeId);
+    this.options.onstatus(nodeId, undefined);
+  }
+
+  /** Point each of hydra's inputs at what its node holds open, or at nothing */
+  private bindInputs() {
+    const inputs = [...this.held.values()];
+    for (let slot = 0; slot < MAX_SOURCES; slot++) {
+      const input = inputs.find((held) => held.slot === slot)?.input;
+      if (input === this.bound[slot]) continue;
+      this.bound[slot] = input;
+      const target = this.synth[`s${slot}`];
+      const previous = target.tex;
+      try {
+        if (input) target.init({ src: input.element, dynamic: input.dynamic });
+        else {
+          target.src = null;
+          target.tex = this.hydra.regl.texture({ shape: [1, 1] });
+        }
+        previous?.destroy?.();
+      } catch (error) {
+        // Too large for this GPU, most likely
+        console.warn("could not show the input", error);
+        const owner = [...this.held].find(([, held]) => held.input === input)?.[0];
+        if (owner) this.options.onstatus(owner, "error");
+      }
     }
   }
 
@@ -208,7 +340,11 @@ export class Engine {
     }
   }
 
-  /** Each preview is read back from the GPU, so only a few go per pass */
+  /**
+   * Each preview is read back from the GPU, so only a few go per pass. The
+   * rows come back in the order hydra shows them on screen (its last pass
+   * turns the picture over), so they go onto the node's canvas as they are.
+   */
   private drawPreviews() {
     if (this.previews.size === 0) return;
     if (this.previewQueue.length === 0) this.previewQueue = [...this.previews.keys()];

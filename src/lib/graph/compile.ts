@@ -2,9 +2,9 @@
  * From a patch to hydra: an expression per node (the texture it produces),
  * which prints as hydra code and builds into hydra's own chain objects.
  */
-import { getDef, MAX_SOURCES, type NodeDef } from "../hydra/catalog";
+import { getDef, MAX_SOURCES, type NodeDef, type SourceKind } from "../hydra/catalog";
 import { paramCode } from "./params";
-import type { InputName, ParamState, Patch, PatchNode } from "./types";
+import type { InputName, MediaRef, ParamState, Patch, PatchNode } from "./types";
 
 export type Expr =
   /** `input.fn(by, ...params)`, or `fn(...params)` for a source */
@@ -14,17 +14,23 @@ export type Expr =
   /** Nothing plugged in: transparent black */
   | { kind: "empty" };
 
-export interface Camera {
+/** Something from outside the patch, and the hydra input it plays on */
+export interface Source {
   nodeId: string;
-  /** Which of hydra's s0 to s3 it plays on */
-  source: number;
+  kind: SourceKind;
+  /** Which of hydra's s0 to s3 */
+  slot: number;
+  /** Which camera */
   device: number;
+  /** Which file, for a picture or a video that has one */
+  media?: MediaRef;
 }
 
 export interface Compiled {
   /** One per `out` node, in patch order: a later one on the same buffer wins */
   outputs: { nodeId: string; buffer: number; expr: Expr }[];
-  cameras: Camera[];
+  /** At most four: hydra has no more inputs, and a fifth input node draws nothing */
+  sources: Source[];
   /** The texture a node produces; an `out` node shows what goes into it */
   exprOf: (nodeId: string) => Expr;
 }
@@ -40,11 +46,20 @@ export function compile(patch: Patch): Compiled {
   const inputs = new Map<string, string>();
   for (const edge of patch.edges) inputs.set(`${edge.target}.${edge.input}`, edge.source);
 
-  const cameras: Camera[] = patch.nodes
-    .filter((node) => node.fn === "cam")
-    .slice(0, MAX_SOURCES)
-    .map((node, source) => ({ nodeId: node.id, source, device: node.option ?? 0 }));
-  const cameraSource = new Map(cameras.map((camera) => [camera.nodeId, camera.source]));
+  const sources: Source[] = [];
+  for (const node of patch.nodes) {
+    const kind = getDef(node.fn)?.source;
+    if (!kind || sources.length === MAX_SOURCES) continue;
+    const source: Source = {
+      nodeId: node.id,
+      kind,
+      slot: sources.length,
+      device: node.option ?? 0,
+    };
+    if (node.media) source.media = node.media;
+    sources.push(source);
+  }
+  const slots = new Map(sources.map((source) => [source.nodeId, source.slot]));
 
   const cache = new Map<string, Expr>();
   const visiting = new Set<string>();
@@ -59,9 +74,9 @@ export function compile(patch: Patch): Compiled {
     if (!def) return EMPTY;
     if (node.fn === "out") return inputOf(node.id, "in");
     if (node.fn === "src") return { kind: "buffer", name: `o${node.option ?? 0}` };
-    if (node.fn === "cam") {
-      const source = cameraSource.get(node.id);
-      return source === undefined ? EMPTY : { kind: "buffer", name: `s${source}` };
+    if (def.source) {
+      const slot = slots.get(node.id);
+      return slot === undefined ? EMPTY : { kind: "buffer", name: `s${slot}` };
     }
     const expr: Expr = { kind: "call", node, def };
     if (def.inputs >= 1) expr.input = inputOf(node.id, "in");
@@ -86,7 +101,7 @@ export function compile(patch: Patch): Compiled {
     .filter((node) => node.fn === "out")
     .map((node) => ({ nodeId: node.id, buffer: node.option ?? 0, expr: exprOf(node.id) }));
 
-  return { outputs, cameras, exprOf };
+  return { outputs, sources, exprOf };
 }
 
 /**
@@ -94,7 +109,9 @@ export function compile(patch: Patch): Compiled {
  * left out: hydra reads those every frame.
  */
 export function signature(patch: Patch): string {
-  const nodes = patch.nodes.map((node) => `${node.id}:${node.fn}:${node.option ?? 0}`);
+  const nodes = patch.nodes.map(
+    (node) => `${node.id}:${node.fn}:${node.option ?? 0}:${node.media?.id ?? ""}`,
+  );
   const edges = patch.edges.map((edge) => `${edge.source}>${edge.target}.${edge.input}`).sort();
   return `${nodes.join(",")}|${edges.join(",")}`;
 }
@@ -159,11 +176,8 @@ function chainCode(expr: Expr, depth: number, inline: boolean, tail = ""): strin
 /** The patch as a hydra sketch, ready to paste into any hydra editor */
 export function toCode(compiled: Compiled, shown = 0): string {
   const parts: string[] = [];
-  if (compiled.cameras.length > 0) {
-    parts.push(
-      compiled.cameras.map((camera) => `s${camera.source}.initCam(${camera.device})`).join("\n"),
-    );
-  }
+  const inits = compiled.sources.map(sourceCode).filter((line) => line !== "");
+  if (inits.length > 0) parts.push(inits.join("\n"));
   for (const output of compiled.outputs) {
     parts.push(chainCode(output.expr, 0, false, `.out(o${output.buffer})`));
   }
@@ -171,9 +185,31 @@ export function toCode(compiled: Compiled, shown = 0): string {
   return parts.join("\n\n");
 }
 
+/**
+ * The line that starts an input. A file of the person's own has no address
+ * anyone else can load, so it is written the way HYDRACTRL's desktop app
+ * serves its media folder: there, the same file under the same name plays.
+ */
+function sourceCode(source: Source): string {
+  const input = `s${source.slot}`;
+  switch (source.kind) {
+    case "cam":
+      return `${input}.initCam(${source.device})`;
+    case "screen":
+      return `${input}.initScreen()`;
+    case "image":
+    case "video": {
+      if (!source.media) return "";
+      const init = source.kind === "image" ? "initImage" : "initVideo";
+      return `${input}.${init}(${JSON.stringify(`/media/${source.media.name}`)})`;
+    }
+  }
+}
+
 /** A node on one line, the way it reads when collapsed: `osc(40, 0.06)` */
 export function nodeCode(node: PatchNode, def: NodeDef): string {
   if (def.options) return `${def.type}(${def.options[node.option ?? 0] ?? ""})`;
+  if (def.source) return `${def.type}(${node.media?.name ?? ""})`;
   const by = def.inputs === 2 ? ["…"] : [];
   return `${def.type}(${[...by, ...argsCode(node, def)].join(", ")})`;
 }

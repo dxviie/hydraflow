@@ -28,8 +28,12 @@ export interface NodeDef {
   primary: number;
   /** Buffers or devices to pick from (`out`, `src`, `cam`) */
   options?: string[];
+  /** It brings something in from outside, on one of hydra's inputs (s0 to s3) */
+  source?: SourceKind;
   doc: string;
 }
+
+export type SourceKind = "cam" | "screen" | "image" | "video";
 
 export const CATEGORIES: Record<Category, { label: string; tag: string; color: string }> = {
   source: { label: "sources", tag: "src", color: "#ffaa99" },
@@ -244,7 +248,38 @@ const SPECIAL: NodeDef[] = [
     params: [],
     primary: 0,
     options: ["cam 0", "cam 1", "cam 2", "cam 3"],
+    source: "cam",
     doc: "your camera",
+  },
+  {
+    type: "screen",
+    category: "input",
+    inputs: 0,
+    hasOutput: true,
+    params: [],
+    primary: 0,
+    source: "screen",
+    doc: "a screen, a window or a tab",
+  },
+  {
+    type: "image",
+    category: "input",
+    inputs: 0,
+    hasOutput: true,
+    params: [],
+    primary: 0,
+    source: "image",
+    doc: "a picture of yours",
+  },
+  {
+    type: "video",
+    category: "input",
+    inputs: 0,
+    hasOutput: true,
+    params: [],
+    primary: 0,
+    source: "video",
+    doc: "a video of yours, looping",
   },
   {
     type: "out",
@@ -270,5 +305,5 @@ export function getDef(type: string): NodeDef | undefined {
   return byType.get(type);
 }
 
-/** How many camera, image and video inputs hydra has: s0 to s3 */
+/** How many inputs hydra has for cameras, screens, pictures and videos: s0 to s3 */
 export const MAX_SOURCES = 4;

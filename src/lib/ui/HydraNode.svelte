@@ -15,14 +15,15 @@
   import type { ParamState } from "../graph/types";
   import { CATEGORIES, getDef } from "../hydra/catalog";
   import { PREVIEW_HEIGHT, PREVIEW_WIDTH } from "../hydra/engine";
-  import { ENGINE, type EngineContext } from "./context";
+  import { EDITOR, type EditorContext } from "./context";
   import ParamRow from "./ParamRow.svelte";
+  import SourceRows from "./SourceRows.svelte";
 
   let { id, data, selected = false }: NodeProps<FlowNode> = $props();
 
   const { updateNodeData } = useSvelteFlow();
   const updateNodeInternals = useUpdateNodeInternals();
-  const engine = getContext<EngineContext>(ENGINE);
+  const editor = getContext<EditorContext>(EDITOR);
 
   const def = $derived(getDef(data.fn));
   const category = $derived(def && CATEGORIES[def.category]);
@@ -41,7 +42,7 @@
   let canvas = $state<HTMLCanvasElement>();
 
   $effect(() => {
-    const current = engine.current;
+    const current = editor.engine;
     if (!current || !canvas) return;
     current.attachPreview(id, canvas);
     return () => current.detachPreview(id);
@@ -108,6 +109,10 @@
             >
           {/each}
         </div>
+      {/if}
+
+      {#if def.source}
+        <SourceRows {id} {def} {data} />
       {/if}
 
       {#each shownParams as param (param.name)}
@@ -280,8 +285,6 @@
     aspect-ratio: 16 / 9;
     border-top: 1px solid var(--rule);
     background: #000;
-    /* WebGL reads back bottom row first */
-    transform: scaleY(-1);
   }
 
   .doc {

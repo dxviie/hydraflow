@@ -5,13 +5,14 @@
 import type { Edge, Node } from "@xyflow/svelte";
 
 import type { SavedNode, SavedPatch } from "./graph/storage";
-import type { InputName, ParamState, Patch, PatchEdge } from "./graph/types";
+import type { InputName, MediaRef, ParamState, Patch, PatchEdge } from "./graph/types";
 import { getDef, type NodeDef } from "./hydra/catalog";
 
 export interface HydraNodeData extends Record<string, unknown> {
   fn: string;
   params: Record<string, ParamState>;
   option?: number;
+  media?: MediaRef;
   collapsed?: boolean;
   preview?: boolean;
   more?: boolean;
@@ -60,6 +61,7 @@ export function toPatch(nodes: FlowNode[], edges: FlowEdge[]): Patch {
       fn: data.fn,
       params: data.params,
       option: data.option,
+      media: data.media,
     })),
     edges: edges.map(toPatchEdge),
   };
@@ -82,6 +84,7 @@ export function toSaved(nodes: FlowNode[], edges: FlowEdge[], shown: number): Sa
       y: Math.round(position.y),
     };
     if (data.option !== undefined) node.option = data.option;
+    if (data.media) node.media = data.media;
     if (data.collapsed) node.collapsed = true;
     if (data.preview) node.preview = true;
     if (data.more) node.more = true;

@@ -15,8 +15,11 @@ This is an early version. It runs in the browser and keeps your patch in the bro
 ## What it does
 
 - **Every hydra function is a node.** The catalog is read from hydra's own definitions, so names,
-  parameters and defaults are hydra's. On top of those: `out` (o0 to o3), `src` (read an output
-  back in, for feedback) and `cam`.
+  parameters and defaults are hydra's. On top of those: `out` (o0 to o3) and `src` (read an output
+  back in, for feedback).
+- **Bring things in**: `cam`, `screen`, `image` and `video` nodes, up to four at a time, as hydra
+  has four inputs. Drop a picture or a video on the canvas, or choose one in the node. Your files
+  are kept in this browser and go nowhere else.
 - **The output plays fullscreen behind the patch**, dimmed while you edit and at full strength
   when you perform.
 - **A node shows what you need, when you need it.** At rest: the one or two parameters that
@@ -32,7 +35,11 @@ This is an early version. It runs in the browser and keeps your patch in the bro
   dropped on empty canvas asks what should go there.
 - **Deleting a node closes the gap** it leaves in its chain.
 - **The patch as code**: the `code` button shows it as a hydra sketch, ready to paste into
-  HYDRACTRL or any hydra editor.
+  HYDRACTRL or any hydra editor. A file of yours is written as `/media/<name>`, where HYDRACTRL's
+  desktop app serves its media folder.
+- **Share a patch as a link.** The patch travels in the part of the address after the `#`, so no
+  server ever sees it. Files don't travel: whoever opens the link chooses their own. Opening a
+  link sets your own patch aside, and one click brings it back.
 - **Undo and redo**, and the patch is back when you reload.
 
 ## Keys
@@ -79,12 +86,16 @@ The build is a static site: any static host works, with `bun run build` as the b
   what drives a parameter (`params.ts`), changes to the wiring (`edit.ts`), reading a saved patch
   (`storage.ts`) and undo (`history.ts`). All of it is unit tested.
 - `src/lib/hydra/` is hydra: the node catalog built from hydra's function definitions
-  (`catalog.ts`) and the engine around the hydra instance (`engine.ts`).
+  (`catalog.ts`), the engine around the hydra instance (`engine.ts`) and what opens a camera, a
+  screen or a file for it (`inputs.ts`).
+- `src/lib/share.ts` packs a patch into a link and reads one back; `src/lib/media.ts` keeps
+  pictures and videos in the browser.
 - `src/lib/ui/` is the interface: the editor around Svelte Flow, the node, its rows, the palette.
 
 Two choices shape the rest. Parameters reach hydra as functions it calls every frame, so
 changing a value never recompiles a shader; only a change of wiring does. And a patch is data all
-the way down: nothing in it is evaluated as code, so a patch from someone else is safe to open.
+the way down: nothing in it is evaluated as code, and it names files without holding them, so a
+patch from someone else is safe to open.
 
 ## Credits
 

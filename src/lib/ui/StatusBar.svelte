@@ -7,13 +7,28 @@
     /** The outputs something is wired to */
     wired: number[];
     fps: number;
+    /** Something to tell the person, with at most one thing to do about it */
+    notice: { text: string; action?: { label: string; run: () => void } } | null;
+    ondismiss: () => void;
     width: number;
     height: number;
     onpause: () => void;
     onshow: (buffer: number) => void;
   }
 
-  let { paused, nodes, shown, wired, fps, width, height, onpause, onshow }: Props = $props();
+  let {
+    paused,
+    nodes,
+    shown,
+    wired,
+    fps,
+    notice,
+    ondismiss,
+    width,
+    height,
+    onpause,
+    onshow,
+  }: Props = $props();
 
   const buffers = [0, 1, 2, 3];
 </script>
@@ -37,6 +52,15 @@
       >
     {/each}
   </div>
+  {#if notice}
+    <div class="notice" role="status">
+      <span>{notice.text}</span>
+      {#if notice.action}
+        <button class="act" onclick={notice.action.run}>{notice.action.label}</button>
+      {/if}
+      <button class="close" aria-label="Dismiss" onclick={ondismiss}>×</button>
+    </div>
+  {/if}
   <span class="spacer"></span>
   <span>{width}×{height}</span>
   <span class="fps">{fps} fps</span>
@@ -105,6 +129,45 @@
     background: var(--text);
     color: #000;
     font-weight: 500;
+  }
+
+  .notice {
+    display: flex;
+    align-items: center;
+    align-self: stretch;
+    gap: 10px;
+    overflow: hidden;
+    padding: 0 4px 0 12px;
+    background: #000;
+    color: var(--text);
+  }
+
+  .notice span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .act {
+    height: 20px;
+    padding: 0 8px;
+    border: 1px solid var(--run);
+    color: var(--run);
+  }
+
+  .act:hover {
+    background: var(--run);
+    color: #000;
+  }
+
+  .close {
+    width: 20px;
+    height: 20px;
+    color: var(--dim);
+    font-size: 14px;
+  }
+
+  .close:hover {
+    color: var(--text);
   }
 
   .spacer {

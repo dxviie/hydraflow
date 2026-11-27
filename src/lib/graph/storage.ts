@@ -6,7 +6,7 @@
 import { getDef, type NodeDef } from "../hydra/catalog";
 import { connect, wouldCycle } from "./edit";
 import { AUDIO_BINS, WAVES } from "./params";
-import type { Drive, InputName, ParamState, PatchEdge, PatchNode } from "./types";
+import type { Drive, InputName, MediaRef, ParamState, PatchEdge, PatchNode } from "./types";
 
 export interface SavedNode extends PatchNode {
   x: number;
@@ -29,6 +29,7 @@ export interface SavedPatch {
 
 const MAX_NODES = 500;
 const MAX_STEPS = 32;
+const MAX_NAME = 200;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -82,6 +83,15 @@ function parseParams(raw: unknown, def: NodeDef): Record<string, ParamState> {
   return params;
 }
 
+/** The name of a file and where this browser keeps it: never the file itself */
+function parseMedia(raw: unknown): MediaRef | undefined {
+  if (!isRecord(raw) || typeof raw.id !== "string" || typeof raw.name !== "string") {
+    return undefined;
+  }
+  if (raw.id === "" || raw.id.length > 64) return undefined;
+  return { id: raw.id, name: raw.name.slice(0, MAX_NAME) };
+}
+
 function parseNode(raw: unknown): SavedNode | undefined {
   if (!isRecord(raw) || typeof raw.id !== "string" || typeof raw.fn !== "string") return undefined;
   const def = getDef(raw.fn);
@@ -96,6 +106,10 @@ function parseNode(raw: unknown): SavedNode | undefined {
   if (def.options) {
     const option = isNumber(raw.option) ? Math.trunc(raw.option) : 0;
     node.option = option >= 0 && option < def.options.length ? option : 0;
+  }
+  if (def.source === "image" || def.source === "video") {
+    const media = parseMedia(raw.media);
+    if (media) node.media = media;
   }
   if (raw.collapsed === true) node.collapsed = true;
   if (raw.preview === true) node.preview = true;

@@ -3,11 +3,12 @@
     codeShown: boolean;
     onadd: () => void;
     oncode: () => void;
+    onshare: () => void;
     onreset: () => void;
     onperform: () => void;
   }
 
-  let { codeShown, onadd, oncode, onreset, onperform }: Props = $props();
+  let { codeShown, onadd, oncode, onshare, onreset, onperform }: Props = $props();
 </script>
 
 <header>
@@ -16,6 +17,7 @@
     <div class="group">
       <button onclick={onadd} title="add a node (Tab)">add node <kbd>tab</kbd></button>
       <button aria-pressed={codeShown} onclick={oncode} title="the patch as hydra code">code</button>
+      <button onclick={onshare} title="copy a link that opens this patch">share</button>
       <button onclick={onreset} title="start again from the starter patch">new</button>
     </div>
     <button class="run" onclick={onperform} title="hide the editor (Ctrl/⌘+`)">

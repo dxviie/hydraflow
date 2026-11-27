@@ -22,13 +22,21 @@ export interface ParamState {
   drive?: Drive;
 }
 
+/** A file of the person's own, kept in their browser: the patch only names it */
+export interface MediaRef {
+  id: string;
+  name: string;
+}
+
 export interface PatchNode {
   id: string;
-  /** A catalog type: a hydra function, or `out`, `src`, `cam` */
+  /** A catalog type: a hydra function, or `out`, `src`, or an input such as `cam` */
   fn: string;
   params: Record<string, ParamState>;
   /** Which buffer (`out`, `src`) or which camera (`cam`) */
   option?: number;
+  /** The file an `image` or `video` node plays */
+  media?: MediaRef;
 }
 
 /** The texture inputs of a node: the chain it continues, and what it mixes in */
