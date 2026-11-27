@@ -66,3 +66,6 @@ export interface Patch {
   nodes: PatchNode[];
   edges: PatchEdge[];
 }
+
+/** What plays behind the editor: one output (0 to 3), or all four, a quarter each */
+export type Shown = number | "all";

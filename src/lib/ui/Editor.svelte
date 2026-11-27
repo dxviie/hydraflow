@@ -21,6 +21,7 @@
     toPatchEdge,
     toSaved,
   } from "../flow";
+  import { AUDIO_DEFAULTS, type AudioSettings } from "../graph/audio";
   import { compile, controlsOf, signature, toCode } from "../graph/compile";
   import {
     connect,
@@ -31,12 +32,26 @@
     wouldCycle,
   } from "../graph/edit";
   import { History } from "../graph/history";
-  import { fits, parsePatch, type SavedPatch, starterPatch } from "../graph/storage";
-  import { type InputName, inputParam, type MediaRef, type PatchEdge } from "../graph/types";
+  import { fits, parsePatch, type SavedPatch, starterPatch, withinBands } from "../graph/storage";
+  import {
+    type InputName,
+    inputParam,
+    type MediaRef,
+    type PatchEdge,
+    type Shown,
+  } from "../graph/types";
+  import {
+    type AudioDevice,
+    type AudioPrefs,
+    type AudioState,
+    audioNote,
+    parseAudioPrefs,
+  } from "../hydra/audio";
   import { getDef, MAX_SOURCES, type NodeDef } from "../hydra/catalog";
   import { Engine, type SourceStatus } from "../hydra/engine";
   import { loadMedia, mediaKind, pruneMedia, saveMedia } from "../media";
   import { decodePatch, encodePatch, linkedPatch, shareUrl } from "../share";
+  import AudioPanel from "./AudioPanel.svelte";
   import CodePane from "./CodePane.svelte";
   import { EDITOR, type EditorContext } from "./context";
   import HydraNode from "./HydraNode.svelte";
@@ -67,6 +82,8 @@
   const STORAGE_KEY = "hydraflow.patch";
   /** The person's own patch, set aside while they look at one from a link */
   const MINE_KEY = "hydraflow.patch.mine";
+  /** What this browser remembers about the sound: the input it listens to, the visualiser */
+  const AUDIO_KEY = "hydraflow.audio";
   const NODE_WIDTH = 216;
   /** The space between two nodes of a chain */
   const GAP = 74;
@@ -89,16 +106,32 @@
     return patch && patch.nodes.length > 0 ? patch : starterPatch();
   }
 
+  function audioPrefs(): AudioPrefs {
+    try {
+      return parseAudioPrefs(JSON.parse(localStorage.getItem(AUDIO_KEY) ?? "null"));
+    } catch {
+      // Unreadable or blocked storage
+      return parseAudioPrefs(undefined);
+    }
+  }
+
   /** The files a patch names */
   const mediaOf = (patch: SavedPatch | undefined) =>
     (patch?.nodes ?? []).flatMap((node) => (node.media ? [node.media.id] : []));
 
   const initial = load();
   const start = fromSaved(initial);
+  const remembered = audioPrefs();
 
   let nodes = $state.raw<FlowNode[]>(start.nodes);
   let edges = $state.raw<FlowEdge[]>(start.edges);
-  let shown = $state(initial.shown);
+  let shown = $state<Shown>(initial.shown);
+  // How the patch reads the sound: part of the patch, like its nodes
+  let audio = $state.raw<AudioSettings>(initial.audio ?? AUDIO_DEFAULTS);
+  let audioShown = $state(false);
+  let visualiser = $state(remembered.visualiser);
+  let input = $state.raw(remembered.input);
+  let hearing = $state.raw<AudioState>({ status: "off", missing: false });
   let codeShown = $state(false);
   let performing = $state(false);
   let paused = $state(false);
@@ -116,7 +149,7 @@
   const flow = useSvelteFlow<FlowNode, FlowEdge>();
   const history = new History<string>();
 
-  const snapshot = () => JSON.stringify(toSaved(nodes, edges, shown));
+  const snapshot = () => JSON.stringify(toSaved(nodes, edges, shown, audio));
   const deselected = (node: FlowNode) => (node.selected ? { ...node, selected: false } : node);
 
   /** The starter patch as it saves: a patch nobody has touched yet */
@@ -125,7 +158,7 @@
 
   const patch = $derived(toPatch(nodes, edges));
   const structure = $derived(signature(patch));
-  const code = $derived(codeShown ? toCode(compile(patch), shown) : "");
+  const code = $derived(codeShown ? toCode(compile(patch), shown, audio) : "");
   const wired = $derived(
     nodes.filter((node) => node.data.fn === "out").map((node) => node.data.option ?? 0),
   );
@@ -152,6 +185,12 @@
     crowded: (nodeId) => crowded.has(nodeId),
     attach,
     controlName: (nodeId) => controlNames.get(nodeId),
+    get audio() {
+      return audio;
+    },
+    get hearing() {
+      return hearing;
+    },
   });
 
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -176,6 +215,25 @@
 
   $effect(() => {
     engine?.show(shown);
+  });
+
+  $effect(() => {
+    engine?.setAudio(audio);
+  });
+
+  // The visualiser wants sound, also when nothing in the patch listens yet
+  $effect(() => {
+    if (visualiser) engine?.listen();
+  });
+
+  $effect(() => {
+    const prefs: AudioPrefs = { visualiser };
+    if (input) prefs.input = input;
+    try {
+      localStorage.setItem(AUDIO_KEY, JSON.stringify(prefs));
+    } catch {
+      // Storage is full or blocked: remembered for this visit only
+    }
   });
 
   $effect(() => {
@@ -211,6 +269,15 @@
         onstatus: (nodeId, status) => {
           if (status) statuses[nodeId] = status;
           else delete statuses[nodeId];
+        },
+        input,
+        onaudio: (state) => {
+          // The patch listens and can't: say so, but not over an offer that waits for an answer
+          const silenced = state.status === "blocked" || state.status === "failed";
+          if (silenced && state.status !== hearing.status && !notice?.action) {
+            tell(`${audioNote(state)} · see audio`);
+          }
+          hearing = state;
         },
       });
     } catch (error) {
@@ -482,8 +549,27 @@
     }
   }
 
+  /** Fewer bands: whatever listened to one that is gone listens to the last there is */
+  function setAudio(next: AudioSettings) {
+    if (next.bins < audio.bins) {
+      nodes = nodes.map((node) => {
+        const data = withinBands(node.data, next.bins);
+        return data === node.data ? node : { ...node, data };
+      });
+    }
+    audio = next;
+  }
+
+  function chooseInput(next: AudioDevice | undefined) {
+    input = next;
+    engine?.chooseInput(next);
+  }
+
   async function share() {
-    const url = shareUrl(window.location.href, await encodePatch(toSaved(nodes, edges, shown)));
+    const url = shareUrl(
+      window.location.href,
+      await encodePatch(toSaved(nodes, edges, shown, audio)),
+    );
     const files = nodes.some((node) => node.data.media);
     try {
       await navigator.clipboard.writeText(url);
@@ -495,9 +581,15 @@
     }
   }
 
-  function show(patch: SavedPatch) {
+  /** Make a saved patch the one that is open */
+  function put(patch: SavedPatch) {
     ({ nodes, edges } = fromSaved(patch));
     shown = patch.shown;
+    audio = patch.audio ?? AUDIO_DEFAULTS;
+  }
+
+  function show(patch: SavedPatch) {
+    put(patch);
     fit();
   }
 
@@ -532,7 +624,8 @@
     }
     const mine = snapshot();
     const incoming = fromSaved(linked);
-    if (JSON.stringify(toSaved(incoming.nodes, incoming.edges, linked.shown)) === mine) return;
+    const theirs = toSaved(incoming.nodes, incoming.edges, linked.shown, linked.audio);
+    if (JSON.stringify(theirs) === mine) return;
     history.record(mine);
     show(linked);
     if (mine === pristine) {
@@ -579,9 +672,7 @@
 
   function restore(saved: string) {
     const restored = parsePatch(JSON.parse(saved));
-    if (!restored) return;
-    ({ nodes, edges } = fromSaved(restored));
-    shown = restored.shown;
+    if (restored) put(restored);
   }
 
   function undo() {
@@ -598,10 +689,7 @@
 
   function reset() {
     if (!window.confirm("Replace this patch with the starter patch?")) return;
-    const fresh = starterPatch();
-    ({ nodes, edges } = fromSaved(fresh));
-    shown = fresh.shown;
-    fit();
+    show(starterPatch());
   }
 
   function onkeydown(event: KeyboardEvent) {
@@ -671,14 +759,29 @@
 {:else}
   <TopBar
     {codeShown}
+    {audioShown}
     onadd={() => openPalette(false)}
     oncode={() => (codeShown = !codeShown)}
+    onaudio={() => (audioShown = !audioShown)}
     onshare={share}
     onreset={reset}
     onperform={() => (performing = true)}
   />
   {#if codeShown}
     <CodePane {code} />
+  {/if}
+  {#if audioShown || visualiser}
+    <AudioPanel
+      open={audioShown}
+      settings={audio}
+      {hearing}
+      {input}
+      {visualiser}
+      onsettings={setAudio}
+      oninput={chooseInput}
+      onvisualiser={(on) => (visualiser = on)}
+      onopen={() => (audioShown = true)}
+    />
   {/if}
   <StatusBar
     {paused}
@@ -691,7 +794,7 @@
     width={size.width}
     height={size.height}
     onpause={() => (paused = !paused)}
-    onshow={(buffer) => (shown = buffer)}
+    onshow={(next) => (shown = next)}
   />
 {/if}
 

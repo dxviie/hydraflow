@@ -1,8 +1,16 @@
 import { describe, expect, test } from "bun:test";
 
 import { fromSaved, newNode, toFlowEdge, toPatch, toPatchEdge, toSaved } from "./flow";
+import { AUDIO_DEFAULTS } from "./graph/audio";
 import { parsePatch, starterPatch } from "./graph/storage";
 import { getDef, type NodeDef } from "./hydra/catalog";
+
+const save = (from: unknown) => {
+  const loaded = parsePatch(from);
+  if (!loaded) throw new Error("the patch did not parse");
+  const { nodes, edges } = fromSaved(loaded);
+  return toSaved(nodes, edges, loaded.shown, loaded.audio);
+};
 
 describe("a patch in Svelte Flow", () => {
   // Undo relies on this: restoring a snapshot must not look like a new change
@@ -19,17 +27,30 @@ describe("a patch in Svelte Flow", () => {
       value: 0.25,
       drive: { mode: "audio", bin: 1, min: 0, max: 0.5 },
     };
-    const save = (from: unknown) => {
-      const loaded = parsePatch(from);
-      if (!loaded) throw new Error("the patch did not parse");
-      const { nodes, edges } = fromSaved(loaded);
-      return toSaved(nodes, edges, loaded.shown);
-    };
-
     const saved = save(patch);
     expect(saved).toEqual(patch);
     const text = JSON.stringify(saved);
     expect(JSON.stringify(save(JSON.parse(text)))).toBe(text);
+  });
+
+  test("saves back how the sound is read and that all outputs show, as it was loaded", () => {
+    const patch = starterPatch();
+    patch.shown = "all";
+    patch.audio = { bins: 6, cutoff: 1.5, smooth: 0.8, scale: 4 };
+    patch.nodes[3].params.amount = {
+      value: 0.25,
+      drive: { mode: "audio", bin: 5, min: 0, max: 0.5 },
+    };
+    const saved = save(patch);
+    expect(saved).toEqual(patch);
+    const text = JSON.stringify(saved);
+    expect(JSON.stringify(save(JSON.parse(text)))).toBe(text);
+  });
+
+  test("a patch that leaves the sound alone saves as it did before there were settings", () => {
+    const { nodes, edges } = fromSaved(starterPatch());
+    expect("audio" in toSaved(nodes, edges, 0)).toBe(false);
+    expect("audio" in toSaved(nodes, edges, 0, { ...AUDIO_DEFAULTS })).toBe(false);
   });
 
   test("hands the compiler the graph without the layout", () => {

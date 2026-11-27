@@ -3,6 +3,7 @@
  * which prints as hydra code and builds into hydra's own chain objects.
  */
 import { getDef, MAX_SOURCES, type NodeDef, type SourceKind } from "../hydra/catalog";
+import { AUDIO_DEFAULTS, type AudioSettings, audioCode } from "./audio";
 import { controlDrive, driveCode, paramCode } from "./params";
 import {
   type Drive,
@@ -12,6 +13,7 @@ import {
   type ParamState,
   type Patch,
   type PatchNode,
+  type Shown,
 } from "./types";
 
 /** The control each wired parameter of a node takes its number from, by parameter name */
@@ -255,17 +257,44 @@ function chainCode(expr: Expr, depth: number, inline: boolean, tail = ""): strin
   return lines.join(inline ? "" : "\n");
 }
 
-/** The patch as a hydra sketch, ready to paste into any hydra editor */
-export function toCode(compiled: Compiled, shown = 0): string {
+/** Does this part of the picture move to the sound? */
+function hears(expr: Expr): boolean {
+  if (expr.kind !== "call") return false;
+  const { node, def, wires } = expr;
+  const listening = def.params.some((param) => {
+    const drive = wires?.[param.name]?.drive ?? paramOf(node, param.name, param.default).drive;
+    return drive?.mode === "audio";
+  });
+  return (
+    listening ||
+    (expr.input !== undefined && hears(expr.input)) ||
+    (expr.by !== undefined && hears(expr.by))
+  );
+}
+
+/**
+ * The patch as a hydra sketch, ready to paste into any hydra editor. How the
+ * sound is read is part of it when the sketch listens: the settings that
+ * aren't hydra's own come first, as `a.setBins(6)`. What plays is its last
+ * line when that isn't o0: `render(o1)`, or `render()` for all four outputs.
+ */
+export function toCode(
+  compiled: Compiled,
+  shown: Shown = 0,
+  audio: AudioSettings = AUDIO_DEFAULTS,
+): string {
   const parts: string[] = [];
   const inits = compiled.sources.map(sourceCode).filter((line) => line !== "");
   if (inits.length > 0) parts.push(inits.join("\n"));
+  const settings = compiled.outputs.some((output) => hears(output.expr)) ? audioCode(audio) : [];
+  if (settings.length > 0) parts.push(settings.join("\n"));
   const used = compiled.controls.filter((control) => control.used);
   if (used.length > 0) parts.push(used.map(controlCode).join("\n"));
   for (const output of compiled.outputs) {
     parts.push(chainCode(output.expr, 0, false, `.out(o${output.buffer})`));
   }
-  if (shown !== 0) parts.push(`render(o${shown})`);
+  if (shown === "all") parts.push("render()");
+  else if (shown !== 0) parts.push(`render(o${shown})`);
   return parts.join("\n\n");
 }
 

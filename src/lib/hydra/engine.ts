@@ -8,9 +8,11 @@
  */
 import Hydra from "hydra-synth";
 
+import type { AudioSettings, Bands } from "../graph/audio";
 import { buildChain, type Chain, type Compiled, type Expr, type Source } from "../graph/compile";
 import { controlDrive, type Env, evalDrive, evalParam } from "../graph/params";
-import type { Drive, ParamState, PatchNode } from "../graph/types";
+import type { Drive, ParamState, PatchNode, Shown } from "../graph/types";
+import { type AudioDevice, type AudioState, Listener } from "./audio";
 import { getDef, MAX_SOURCES } from "./catalog";
 import { type OpenInput, openCamera, openImage, openScreen, openVideo } from "./inputs";
 
@@ -32,6 +34,10 @@ export interface EngineOptions {
   /** The file behind a picture or video node, if this browser has it */
   loadMedia: (id: string) => Promise<Blob | undefined>;
   onstatus: (nodeId: string, status: SourceStatus | undefined) => void;
+  /** The audio input the person chose before; without one, the system default */
+  input?: AudioDevice;
+  /** Where listening stands, and again whenever inputs come and go */
+  onaudio: (state: AudioState) => void;
 }
 
 /** What an input node holds open, whichever of hydra's inputs it plays on */
@@ -71,6 +77,7 @@ export class Engine {
   private blank: Chain;
   private held = new Map<string, Held>();
   private bound: (OpenInput | undefined)[] = [];
+  private listener: Listener;
   private env: Env;
   private frame = 0;
   private last = 0;
@@ -86,6 +93,7 @@ export class Engine {
       canvas,
       width: canvas.width,
       height: canvas.height,
+      // The editor listens for itself, to the input the person chose: see audio.ts
       detectAudio: false,
       makeGlobal: false,
       autoLoop: false,
@@ -100,10 +108,13 @@ export class Engine {
     });
     this.blank = regl.texture({ width: 1, height: 1 });
 
+    this.listener = new Listener(options.input, options.onaudio);
+    const { fft } = this.listener.bands;
     this.env = {
       time: 0,
       bpm: 30,
-      fft: (bin) => this.synth.a?.fft?.[bin] ?? 0,
+      // A band the sound isn't cut into is silent
+      fft: (bin) => fft[bin] ?? 0,
       mouse: { x: 0, y: 0 },
     };
   }
@@ -123,6 +134,7 @@ export class Engine {
   stop() {
     cancelAnimationFrame(this.frame);
     for (const nodeId of [...this.held.keys()]) this.release(nodeId);
+    this.listener.stop();
   }
 
   resize(width: number, height: number) {
@@ -141,7 +153,7 @@ export class Engine {
       audio ||= control === "audio";
       for (const name in node.params) audio ||= node.params[name].drive?.mode === "audio";
     }
-    if (audio) this.enableAudio();
+    if (audio) this.listener.start();
   }
 
   /** New wiring: build hydra's chains again, and the previews with them */
@@ -157,9 +169,10 @@ export class Engine {
     }
   }
 
-  /** Which output plays on the canvas */
-  show(buffer: number) {
-    this.synth.render(this.synth[`o${buffer}`]);
+  /** Which output plays on the canvas, or all four, a quarter each: hydra's `render()` */
+  show(shown: Shown) {
+    if (shown === "all") this.synth.render();
+    else this.synth.render(this.synth[`o${shown}`]);
   }
 
   attachPreview(nodeId: string, canvas: HTMLCanvasElement) {
@@ -176,11 +189,35 @@ export class Engine {
     this.previews.delete(nodeId);
   }
 
-  /** The microphone, asked for the first time a parameter listens to it */
-  private enableAudio() {
-    if (this.hydra.detectAudio) return;
-    this.hydra.detectAudio = true;
-    this.hydra._initAudio();
+  /* ── Sound: asked for the first time something listens to it ── */
+
+  /** The bands of the sound as they are this frame, for whatever draws them */
+  get bands(): Bands {
+    return this.listener.bands;
+  }
+
+  /** How the sound becomes `a.fft`. Cheap: call it on every change. */
+  setAudio(settings: AudioSettings) {
+    this.listener.bands.settings = settings;
+  }
+
+  /** Listen without waiting for the patch to: the visualiser wants sound too */
+  listen() {
+    this.listener.start();
+  }
+
+  /** Ask for the microphone again, after the browser turned it down or found none */
+  retryAudio() {
+    this.listener.retry();
+  }
+
+  /** Listen to another input; nothing is the system default */
+  chooseInput(input: AudioDevice | undefined) {
+    this.listener.choose(input);
+  }
+
+  audioInputs() {
+    return this.listener.inputs();
   }
 
   /** A screen is only shared when asked: call this from the click that asks */
@@ -339,6 +376,7 @@ export class Engine {
     this.env.bpm = bpm;
     this.env.mouse.x = (mouse?.x ?? 0) / window.innerWidth;
     this.env.mouse.y = (mouse?.y ?? 0) / window.innerHeight;
+    this.listener.tick();
     this.hydra.tick(elapsed);
     this.env.time = this.synth.time;
 

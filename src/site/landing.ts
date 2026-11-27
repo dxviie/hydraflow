@@ -45,6 +45,8 @@ function startBackdrop() {
       // The hero's patch plays no files and opens no camera
       loadMedia: async () => undefined,
       onstatus: () => {},
+      // Nor does it listen
+      onaudio: () => {},
     });
   } catch (error) {
     console.warn("hydra needs WebGL, and this browser didn't give it one", error);
